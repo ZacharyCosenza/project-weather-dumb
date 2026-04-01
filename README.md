@@ -4,16 +4,108 @@ Predict NYC weather conditions using only indirect proxy data — no direct weat
 
 **Targets:** Precipitation class `{clear, cloudy, rainy, snowy}` and temperature class `{cold, temperate, hot}`.
 
+---
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e .
 ```
-kedro run --pipeline data_engineering
-kedro run --pipeline data_science
+
+### 2. Train the models
+
+This fetches all data sources, merges them, and trains both classifiers. On first run it downloads ~3 years of hourly data — expect 3–5 minutes.
+
+```bash
+kedro run
 ```
+
+Outputs written to `data/03_primary/`: trained models, evaluation plots, SHAP plots.
+
+### 3. Run inference
+
+Loads the trained models and generates a prediction for the most recent available hour.
+
+```bash
+kedro run --pipeline inference
+```
+
+Output: `data/03_primary/predictions.json`
+
+### 4. Launch the website
+
+```bash
+streamlit run app/app.py
+```
+
+Opens at `http://localhost:8501`. Shows the current precipitation and temperature prediction with confidence level and feature contributions.
+
+To run the site persistently in the background (survives closing the terminal):
+
+```bash
+nohup streamlit run app/app.py >> logs/streamlit.log 2>&1 &
+```
+
+To stop it:
+
+```bash
+pkill -f "streamlit run"
+```
+
+### 5. Schedule hourly refresh (optional)
+
+The shell script re-fetches today's data, retrains, and runs inference in one step:
+
+```bash
+bash run_hourly.sh
+```
+
+To run this automatically every hour, add it to cron:
+
+```bash
+crontab -e
+# Add this line:
+0 * * * * cd /home/zaccosenza/code/project-weather-dumb && bash run_hourly.sh >> logs/cron.log 2>&1
+```
+
+Cron runs the script in the background at the top of every hour. Logs are written to `logs/cron.log`. The Streamlit app always reads the latest `predictions.json`, so it automatically shows updated results — just click **Refresh** in the browser.
+
+---
+
+## How It Works
+
+### Data → Features → Model → Prediction
+
+```
+Open-Meteo ERA5     →  ground truth labels (precip class, temp class)
+NYISO grid load     ─┐
+MTA ridership        ├─ lag-shifted features → XGBoost → prediction + confidence
+NYC 311 complaints   │
+Motor vehicle crashes ┘
+```
+
+The key constraint is that no direct weather data is used as a model input. Instead, four proxy sources are used — things that *respond to weather* rather than measuring it. The model learns to invert that relationship.
+
+**Publication lag:** Each source has a known delay between when an event happens and when the data is published. Feeding the model a value that won't exist yet at inference time is a form of data leakage. The lag shift `feature[t] = value[t - lag_days]` ensures the model only ever sees data that would have been available at the time of prediction.
+
+| Source | Observed lag | Lag parameter |
+|---|---|---|
+| NYISO grid load | ~0.2h | none (hourly native) |
+| MTA ridership | ~57h | 3 days |
+| NYC 311 complaints | ~31h | 2 days |
+| Motor vehicle crashes | ~105h | 5 days |
+
+Daily sources (MTA, 311, crashes) are upsampled to hourly by holding each day's published value constant across all 24 hours. This is correct: once a daily batch is published at midnight, the value is known and fixed for the entire day.
 
 ---
 
 ## Targets
 
-Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row is assigned a precipitation class and a temperature class from the raw ERA5 measurements. The class balance below is what the model must learn from; note the natural imbalance (snowy is ~7% of hours), which is handled via class-proportionality sample weighting at training time.
+Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row is assigned a precipitation class and a temperature class. The class imbalance (snowy is ~7% of hours) is handled via class-proportionality sample weighting at training time.
 
 | Target | Derivation |
 |---|---|
@@ -31,24 +123,15 @@ Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly
 
 ## Features
 
-No direct weather measurements are used as model inputs. Instead, four proxy sources are fetched, each with a known publication lag. Daily sources are reindexed to hourly — the published value is held constant across all 24 hours of the day it's available — then shifted back by the lag so the model only sees data that would have been available at inference time. NYISO is natively hourly with a ~12-minute lag.
-
-| Feature | Columns | Observed lag | Source |
-|---|---|---|---|
-| NYISO grid load (Zone J) | `nyiso_load_mw` | ~0.2h | `mis.nyiso.com` monthly zip archives |
-| MTA ridership | `mta_subway`, `mta_bus` | ~57h → 3-day param | `data.ny.gov` — `sayj-mze2` |
-| NYC 311 complaints | `311_heat`, `311_flood`, `311_snow` | ~31h → 2-day param | `data.cityofnewyork.us` — `erm2-nwe9` |
-| Motor vehicle crashes | `crashes_total`, `crashes_slippery` | ~105h → 5-day param | `data.cityofnewyork.us` — `h9gi-nx95` |
-
-The time series below shows each feature across the full training range. Seasonality in NYISO load (AC in summer, heating in winter) and periodicity in MTA ridership (weekday/weekend cycles) are the dominant visible patterns — exactly the kind of structure the model can exploit as a weather proxy.
-
 ![Features over time](data/03_primary/plot_features_time.png)
 
-To understand what signal each feature carries, the distributions below show how each proxy behaves across the four precipitation classes. A feature with well-separated box plots across classes is a strong discriminator. NYISO load tends to be the tightest signal; crash and 311 counts show strong tails under snowy and rainy conditions.
+The time series above shows each feature across the full training range. Seasonality in NYISO load (AC in summer, heating in winter) and weekly cycles in MTA ridership are the dominant visible patterns — exactly the kind of structure that correlates with weather.
+
+The distributions below show how each proxy behaves across precipitation classes. A feature with well-separated box plots is a strong discriminator. NYISO load tends to be the tightest signal; crash and 311 counts show strong tails under snowy and rainy conditions.
 
 ![Feature distributions by precipitation class](data/03_primary/plot_distributions.png)
 
-The heatmap below quantifies these relationships as Pearson correlations between each feature and the ordinal-encoded targets. Features with large positive or negative values are most useful to the model; features near zero contribute little in a linear sense, though XGBoost can still exploit non-linear interactions.
+The heatmap below quantifies these relationships as Pearson correlations. Features with large positive or negative values are most useful; features near zero contribute little linearly, though XGBoost can still exploit non-linear interactions.
 
 ![Feature × target correlations](data/03_primary/plot_correlations.png)
 
@@ -56,11 +139,11 @@ The heatmap below quantifies these relationships as Pearson correlations between
 
 ## Results
 
-Models are trained on data through end of 2023 and evaluated against two holdout sets: a temporal test set (Jul–Dec 2024, production-realistic) and a random 10% sample across all time (an upper-bound comparison). The bar charts compare these two splits on four metrics; the OvR ROC curves show per-class discrimination on the temporal test set, which is the hardest and most honest evaluation.
+Models are evaluated against two holdout sets: a temporal test set (Jul–Dec 2024, production-realistic) and a random 10% sample across all time (an upper bound). The temporal test is the honest number — it measures performance on future data the model has never seen, which is the actual production scenario.
 
 ![Model evaluation — metrics and ROC curves](data/03_primary/plot_metrics.png)
 
-SHAP values explain which features drove each prediction. The beeswarm below shows mean absolute SHAP magnitude across all output classes — features higher on the plot contributed more to model decisions on average. Dot color indicates whether the feature value at that point was high (orange) or low (navy), allowing you to see whether high NYISO load pushes toward hot/cold vs. clear/cloudy predictions.
+SHAP values explain which features drove each prediction. Features higher on the plot contributed more to model decisions on average. Orange dots indicate high feature values, navy dots indicate low values — showing whether e.g. high NYISO load pushes toward hot vs. cold predictions.
 
 ![SHAP — precipitation model](data/03_primary/shap_precip.png)
 

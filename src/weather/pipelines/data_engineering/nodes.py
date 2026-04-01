@@ -21,7 +21,7 @@ _TEMP_ORDER   = ["cold", "temperate", "hot"]
 def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
                      cold_c: float, hot_c: float) -> pd.DataFrame:
     session = retry(
-        requests_cache.CachedSession(".openmeteo_cache", expire_after=86400),
+        requests_cache.CachedSession("data/00_cache/openmeteo", expire_after=86400),
         retries=5, backoff_factor=0.3,
     )
     r = session.get("https://archive-api.open-meteo.com/v1/archive", params={

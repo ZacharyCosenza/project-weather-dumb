@@ -21,6 +21,10 @@ feature_cols:
   - 311_snow
   - crashes_total
   - crashes_slippery
+confidence_thresholds:
+  high:   0.7
+  medium: 0.4
+
 xgb:
   n_estimators: 300
   learning_rate: 0.05
