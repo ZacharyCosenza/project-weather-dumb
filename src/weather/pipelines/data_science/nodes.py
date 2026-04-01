@@ -15,9 +15,10 @@ from xgboost import XGBClassifier
 _PRECIP_ORDER = ["clear", "cloudy", "rainy", "snowy"]
 _TEMP_ORDER   = ["cold", "temperate", "hot"]
 _NAVY, _ORANGE = "#1B3A6B", "#E87722"
+_GREY_DARK, _GREY_MID, _GREY_LIGHT = "#6B6B6B", "#9E9E9E", "#D4D4D4"
 _COLORS = {
-    "clear": "#F4A460", "cloudy": "#6B8CAE", "rainy": _NAVY, "snowy": "#C5D8EC",
-    "cold": _NAVY, "temperate": "#6B9E78", "hot": _ORANGE,
+    "clear": "#F4A460", "cloudy": _GREY_MID,  "rainy": _NAVY,       "snowy": _GREY_LIGHT,
+    "cold":  _NAVY,     "temperate": _GREY_DARK, "hot": _ORANGE,
 }
 _SPLIT_COLORS = {"temporal": _NAVY, "random": _ORANGE}
 _DIV_CMAP     = LinearSegmentedColormap.from_list("navy_orange", [_NAVY, "#F5F5F5", _ORANGE])
