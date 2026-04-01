@@ -1,0 +1,28 @@
+nyc_lat: 40.7128
+nyc_lon: -74.0060
+cold_c: 4.44
+hot_c: 26.67
+precip_mm: 1.0
+start_date: "2022-02-01"
+end_date:   "2024-12-31"
+mta_lag: 3
+lag_311: 1
+crashes_lag: 3
+lag_window: 1
+feature_cols:
+  - nyiso_load_mw
+  - mta_subway
+  - mta_bus
+  - 311_heat
+  - 311_flood
+  - 311_snow
+  - crashes_total
+  - crashes_slippery
+xgb:
+  n_estimators: 300
+  learning_rate: 0.05
+  max_depth: 5
+  early_stopping_rounds: 20
+  random_state: 42
+test_size: 0.2
+val_split: 0.5

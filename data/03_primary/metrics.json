@@ -1,0 +1,12 @@
+{
+  "precip_accuracy": 0.7286,
+  "precip_precision": 0.7388,
+  "precip_recall": 0.7286,
+  "precip_auc_roc": 0.9109,
+  "temp_accuracy": 0.9154,
+  "temp_precision": 0.9143,
+  "temp_recall": 0.9154,
+  "temp_auc_roc": 0.9807,
+  "precip_best_iter": 299,
+  "temp_best_iter": 299
+}
