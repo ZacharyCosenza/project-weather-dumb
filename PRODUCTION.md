@@ -398,6 +398,48 @@ The `./data` bind mount is unaffected by rebuilds. Models and predictions are ne
 
 ---
 
+## Step 11 — Expose the site remotely with ngrok
+
+By default Streamlit is only reachable at `http://localhost:8501` on this machine.
+ngrok creates a secure public tunnel so you can access it from any device.
+
+**Install ngrok:**
+```bash
+curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
+  | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null \
+  && echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
+  | sudo tee /etc/apt/sources.list.d/ngrok.list \
+  && sudo apt update && sudo apt install ngrok
+```
+
+**Sign up and add your auth token** (free at ngrok.com):
+```bash
+ngrok config add-authtoken <your-token>
+```
+
+**Start the tunnel:**
+```bash
+ngrok http 8501
+```
+
+ngrok prints a public HTTPS URL like `https://abc123.ngrok-free.app`. Open that from
+any browser on any device. The tunnel stays alive as long as the ngrok process runs.
+
+**Keep ngrok running persistently** (survives closing the terminal):
+```bash
+nohup ngrok http 8501 >> logs/ngrok.log 2>&1 &
+```
+
+To find the current public URL after the fact:
+```bash
+curl -s http://localhost:4040/api/tunnels | python3 -m json.tool | grep public_url
+```
+
+**Note:** The free tier assigns a new random URL each time ngrok restarts. If you need
+a stable URL, ngrok paid plans offer static domains.
+
+---
+
 ## Troubleshooting
 
 **`docker exec` fails with "no such container"**

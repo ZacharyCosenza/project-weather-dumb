@@ -49,6 +49,7 @@ def run_inference(
 
     return {
         "timestamp": ts,
+        "features":  {col: round(float(latest[col].iloc[0]), 2) for col in feat},
         "precip":    _predict_target(model_precip, latest, _PRECIP_ORDER, confidence_thresholds),
         "temp":      _predict_target(model_temp,   latest, _TEMP_ORDER,   confidence_thresholds),
     }

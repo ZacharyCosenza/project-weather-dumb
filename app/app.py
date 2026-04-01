@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")
 import numpy as np
+import pandas as pd
 import streamlit as st
 
 _PREDICTIONS_PATH = Path(__file__).parents[1] / "data/03_primary/predictions.json"
@@ -55,7 +56,7 @@ def confidence_badge(level: str) -> None:
     )
 
 
-_CHART_SIZE = (4, 1.8)
+_CHART_SIZE = (3, 1.4)
 
 
 def shap_chart(prediction: str, shap_vals: dict, pred_color: str) -> plt.Figure:
@@ -73,15 +74,7 @@ def shap_chart(prediction: str, shap_vals: dict, pred_color: str) -> plt.Figure:
     ax.barh(y, pos_vals, color=_ORANGE, edgecolor="white", linewidth=0.4, label="pushes toward")
     ax.barh(y, neg_vals, color=_NAVY,   edgecolor="white", linewidth=0.4, label="pushes away")
 
-    # Prediction marker line
     ax.axvline(0, color="black", linewidth=0.8)
-
-    # Value labels
-    for i, v in enumerate(vals):
-        x_pos = v + (0.002 if v >= 0 else -0.002)
-        ha    = "left" if v >= 0 else "right"
-        ax.text(x_pos, i, f"{v:+.3f}", va="center", ha=ha, fontsize=8)
-
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=9)
     ax.set_xlabel(f"SHAP contribution toward '{prediction}'")
@@ -108,7 +101,15 @@ if st.button("↻ Refresh"):
     st.rerun()
 
 preds = load_predictions()
-st.caption(f"Prediction timestamp: {preds['timestamp']} · Retrain cadence: hourly")
+st.caption(f"Features current as of: {preds['timestamp']} · Retrain cadence: hourly")
+st.divider()
+
+st.subheader("Current Feature Values")
+feature_table = pd.DataFrame([
+    {"Feature": _FEATURE_LABELS.get(k, k), "Value": f"{v:,.2f}"}
+    for k, v in preds["features"].items()
+])
+st.dataframe(feature_table, hide_index=True, use_container_width=False)
 st.divider()
 
 render_target(preds["precip"], _PRECIP_COLORS)

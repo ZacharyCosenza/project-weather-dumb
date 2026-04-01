@@ -4,7 +4,7 @@ cold_c: 4.44
 hot_c: 26.67
 precip_mm: 1.0
 start_date: "2022-02-01"
-end_date:   "2024-12-31"
+end_date:   "2026-04-01"
 mta_lag: 3
 lag_311: 2
 crashes_lag: 5
@@ -12,6 +12,7 @@ lag_window: 1
 train_end: "2023-12-31"
 val_end:   "2024-06-30"
 random_test_frac: 0.1
+train_subsample_frac: 0.2
 feature_cols:
   - nyiso_load_mw
   - mta_subway

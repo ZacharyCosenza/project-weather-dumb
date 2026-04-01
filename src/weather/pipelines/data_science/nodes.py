@@ -235,6 +235,7 @@ def train_and_evaluate(
     train_end: str,
     val_end: str,
     random_test_frac: float,
+    train_subsample_frac: float = 1.0,
 ) -> tuple[XGBClassifier, XGBClassifier, Figure, Figure, Figure]:
     feat = [c for c in feature_cols if c in hourly_features.columns]
     df   = hourly_features[feat + ["precip_int", "temp_int"]].dropna(subset=["precip_int", "temp_int"])
@@ -245,10 +246,13 @@ def train_and_evaluate(
     t_val = df[(df.index > train_end_ts) & (df.index <= val_end_ts)]
     t_te  = df[df.index > val_end_ts]
 
+    rs    = xgb.get("random_state", 42)
+    if train_subsample_frac < 1.0:
+        t_tr = t_tr.sample(frac=train_subsample_frac, random_state=rs)
+
     model_precip = _train_xgb(t_tr[feat], t_tr["precip_int"], t_val[feat], t_val["precip_int"], 4, xgb)
     model_temp   = _train_xgb(t_tr[feat], t_tr["temp_int"],   t_val[feat], t_val["temp_int"],   3, xgb)
 
-    rs      = xgb.get("random_state", 42)
     splits  = {"temporal": t_te, "random": df.sample(frac=random_test_frac, random_state=rs)}
     results = _evaluate(model_precip, model_temp, splits, feat)
 

@@ -90,7 +90,7 @@ def _fetch_nyiso(start: str, end: str) -> pd.DataFrame:
 def _fetch_mta(start: str, end: str) -> pd.DataFrame:
     session = requests_cache.CachedSession("data/00_cache/mta", expire_after=86400)
     r = session.get("https://data.ny.gov/resource/sayj-mze2.json", params={
-        "$where": f"date >= '{start}T00:00:00' and date <= '{end}T23:59:59'",
+        "$where": f"mode in ('Subway', 'Bus') and date >= '{start}T00:00:00' and date <= '{end}T23:59:59'",
         "$order": "date ASC",
         "$limit": "10000",
     }, timeout=60)
@@ -200,7 +200,7 @@ def merge_features(
         lagged  = daily_h.shift(lag * 24).rolling(window * 24, min_periods=1).mean()
         return hourly.join(lagged, how="left")
 
-    hourly = raw_openmeteo.join(raw_nyiso, how="left")
+    hourly = raw_nyiso.join(raw_openmeteo, how="left")
 
     if not raw_mta.empty:
         hourly = _lag_join(hourly, raw_mta, mta_lag, lag_window)
