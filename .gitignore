@@ -3,3 +3,6 @@
 
 # Data
 *.sqlite
+
+# Keys
+keys.md
