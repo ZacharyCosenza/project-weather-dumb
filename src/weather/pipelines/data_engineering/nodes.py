@@ -88,7 +88,7 @@ def _fetch_nyiso(start: str, end: str) -> pd.DataFrame:
 
 
 def _fetch_mta(start: str, end: str) -> pd.DataFrame:
-    session = requests_cache.CachedSession(".mta_cache", expire_after=86400)
+    session = requests_cache.CachedSession("data/00_cache/mta", expire_after=86400)
     r = session.get("https://data.ny.gov/resource/sayj-mze2.json", params={
         "$where": f"date >= '{start}T00:00:00' and date <= '{end}T23:59:59'",
         "$order": "date ASC",
@@ -110,7 +110,7 @@ def _fetch_mta(start: str, end: str) -> pd.DataFrame:
 
 
 def _fetch_311(start: str, end: str) -> pd.DataFrame:
-    session = requests_cache.CachedSession(".311_cache", expire_after=86400)
+    session = requests_cache.CachedSession("data/00_cache/311", expire_after=86400)
     types = ["HEAT/HOT WATER", "Street Flooding", "Flooded Basement", "Snow"]
     type_list = ", ".join(f"'{t}'" for t in types)
     r = session.get("https://data.cityofnewyork.us/resource/erm2-nwe9.json", params={
@@ -148,7 +148,7 @@ def _fetch_311(start: str, end: str) -> pd.DataFrame:
 
 
 def _fetch_crashes(start: str, end: str) -> pd.DataFrame:
-    session = requests_cache.CachedSession(".crashes_cache", expire_after=86400)
+    session = requests_cache.CachedSession("data/00_cache/crashes", expire_after=86400)
     r = session.get("https://data.cityofnewyork.us/resource/h9gi-nx95.json", params={
         "$select": (
             "date_trunc_ymd(crash_date) as date,"

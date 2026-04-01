@@ -1,8 +1,24 @@
 # Env
 .venv
 
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
 # Data
 *.sqlite
+data/00_cache/
+data/01_raw/
+data/02_intermediate/
+data/03_primary/
+
+# Kedro
+logs/
 
 # Keys
 keys.md
