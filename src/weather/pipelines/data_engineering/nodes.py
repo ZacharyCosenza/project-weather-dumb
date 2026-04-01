@@ -196,8 +196,9 @@ def merge_features(
     lag_window: int,
 ) -> pd.DataFrame:
     def _lag_join(hourly: pd.DataFrame, daily: pd.DataFrame, lag: int, window: int) -> pd.DataFrame:
-        lagged = daily.shift(lag).rolling(window, min_periods=1).sum()
-        return hourly.join(lagged.reindex(hourly.index, method="ffill"), how="left")
+        daily_h = daily.reindex(hourly.index, method="ffill")
+        lagged  = daily_h.shift(lag * 24).rolling(window * 24, min_periods=1).mean()
+        return hourly.join(lagged, how="left")
 
     hourly = raw_openmeteo.join(raw_nyiso, how="left")
 

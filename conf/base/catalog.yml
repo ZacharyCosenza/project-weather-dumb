@@ -36,9 +36,10 @@ model_temp:
   type: pickle.PickleDataset
   filepath: data/03_primary/model_temp.pkl
 
-metrics:
-  type: json.JSONDataset
-  filepath: data/03_primary/metrics.json
+plot_metrics:
+  type: matplotlib.MatplotlibWriter
+  filepath: data/03_primary/plot_metrics.png
+  save_args: {format: png, dpi: 150, bbox_inches: tight}
 
 plot_distributions:
   type: matplotlib.MatplotlibWriter
@@ -48,6 +49,16 @@ plot_distributions:
 plot_correlations:
   type: matplotlib.MatplotlibWriter
   filepath: data/03_primary/plot_correlations.png
+  save_args: {format: png, dpi: 150, bbox_inches: tight}
+
+plot_targets:
+  type: matplotlib.MatplotlibWriter
+  filepath: data/03_primary/plot_targets.png
+  save_args: {format: png, dpi: 150, bbox_inches: tight}
+
+plot_features_time:
+  type: matplotlib.MatplotlibWriter
+  filepath: data/03_primary/plot_features_time.png
   save_args: {format: png, dpi: 150, bbox_inches: tight}
 
 shap_precip:
