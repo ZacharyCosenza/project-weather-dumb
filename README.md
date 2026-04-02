@@ -1,10 +1,75 @@
 # NYC Proxy Weather Nowcaster
 
-The goal of this repo is to use the people and the data of New York City to predict the weather, after all, why shouldn't correlation be causation? 
+Why do we need historical temperature and pressure trends or complex physical models to predict the weather when we have access to the goings-on of the great people of New York City? That is what I am trying to answer with this repo. In this repo, correlation is causation. 
 
-**Targets:** Precipitation class `{clear, cloudy, rainy, snowy}` and temperature class `{cold, temperate, hot}`.
+## Targets
+
+Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row is assigned a precipitation class and a temperature class. Class imbalance (snowy is ~7% of hours) is handled via class-proportionality sample weighting at training time.
+
+| Target | Derivation |
+|---|---|
+| `snowy` | snowfall > 0 cm |
+| `rainy` | precipitation ≥ 1 mm (and no snow) |
+| `cloudy` | cloud cover ≥ 60% (and no precip) |
+| `clear` | otherwise |
+| `cold` | mean temp < 4.44°C (40°F) |
+| `hot` | mean temp > 26.67°C (80°F) |
+| `temperate` | otherwise |
+
+![Target class balance](data/03_primary/plot_targets.png)
+
+### Data
+
+```
+Open-Meteo ERA5      →  ground truth labels (precip class, temp class)
+NYISO grid load     ─┐
+MTA ridership        ├─ lag-shifted features → XGBoost → prediction + confidence
+NYC 311 complaints   │
+Motor vehicle crashes┘
+```
+
+The key constraint is that no direct weather data is used as a model input. Instead, four proxy sources are used — things that *respond to weather* rather than measuring it. The model learns to invert that relationship.
+
+**Publication lag:** Each source has a known delay between when an event happens and when the data is published. The lag shift `feature[t] = value[t - lag_days]` ensures the model only ever sees data that would have been available at the time of prediction.
+
+| Source | Publication lag | Lag parameter |
+|---|---|---|
+| NYISO grid load | ~0.2h | none |
+| MTA ridership | ~66h | 3 days |
+| NYC 311 complaints | ~39h | 2 days |
+| Motor vehicle crashes | ~114h | 5 days |
+
+Daily sources (MTA, 311, crashes) are reindexed to hourly by holding each day's published value constant across all 24 hours of that day, then the lag shift is applied on the hourly index.
 
 ---
+
+## Features
+
+![Features over time](data/03_primary/plot_features_time.png)
+
+The time series above shows each feature across the full training range. Seasonality in NYISO load (AC in summer, heating in winter) and weekly cycles in MTA ridership are the dominant visible patterns — exactly the kind of structure that correlates with weather.
+
+The distributions below show how each proxy behaves across precipitation classes. A feature with well-separated box plots is a strong discriminator.
+
+![Feature distributions by precipitation class](data/03_primary/plot_distributions.png)
+
+The heatmap below quantifies these relationships as Pearson correlations.
+
+![Feature × target correlations](data/03_primary/plot_correlations.png)
+
+---
+
+## Results
+
+Models are evaluated against two holdout sets: a temporal test set (Jul 2024–present, production-realistic) and a random 10% sample across all time (an upper bound). The temporal test is the honest number — it measures performance on future data the model has never seen.
+
+![Model evaluation — metrics and ROC curves](data/03_primary/plot_metrics.png)
+
+SHAP values explain which features drove each prediction.
+
+![SHAP — precipitation model](data/03_primary/shap_precip.png)
+
+![SHAP — temperature model](data/03_primary/shap_temp.png)
 
 ## Quick Start
 
@@ -78,76 +143,3 @@ To run automatically, add to cron (`crontab -e`):
 For Docker-based production setup, see [PRODUCTION.md](PRODUCTION.md).
 
 ---
-
-## How It Works
-
-### Data → Features → Model → Prediction
-
-```
-Open-Meteo ERA5      →  ground truth labels (precip class, temp class)
-NYISO grid load     ─┐
-MTA ridership        ├─ lag-shifted features → XGBoost → prediction + confidence
-NYC 311 complaints   │
-Motor vehicle crashes┘
-```
-
-The key constraint is that no direct weather data is used as a model input. Instead, four proxy sources are used — things that *respond to weather* rather than measuring it. The model learns to invert that relationship.
-
-**Publication lag:** Each source has a known delay between when an event happens and when the data is published. The lag shift `feature[t] = value[t - lag_days]` ensures the model only ever sees data that would have been available at the time of prediction.
-
-| Source | Publication lag | Lag parameter |
-|---|---|---|
-| NYISO grid load | ~0.2h | none |
-| MTA ridership | ~66h | 3 days |
-| NYC 311 complaints | ~39h | 2 days |
-| Motor vehicle crashes | ~114h | 5 days |
-
-Daily sources (MTA, 311, crashes) are reindexed to hourly by holding each day's published value constant across all 24 hours of that day, then the lag shift is applied on the hourly index.
-
----
-
-## Targets
-
-Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row is assigned a precipitation class and a temperature class. Class imbalance (snowy is ~7% of hours) is handled via class-proportionality sample weighting at training time.
-
-| Target | Derivation |
-|---|---|
-| `snowy` | snowfall > 0 cm |
-| `rainy` | precipitation ≥ 1 mm (and no snow) |
-| `cloudy` | cloud cover ≥ 60% (and no precip) |
-| `clear` | otherwise |
-| `cold` | mean temp < 4.44°C (40°F) |
-| `hot` | mean temp > 26.67°C (80°F) |
-| `temperate` | otherwise |
-
-![Target class balance](data/03_primary/plot_targets.png)
-
----
-
-## Features
-
-![Features over time](data/03_primary/plot_features_time.png)
-
-The time series above shows each feature across the full training range. Seasonality in NYISO load (AC in summer, heating in winter) and weekly cycles in MTA ridership are the dominant visible patterns — exactly the kind of structure that correlates with weather.
-
-The distributions below show how each proxy behaves across precipitation classes. A feature with well-separated box plots is a strong discriminator.
-
-![Feature distributions by precipitation class](data/03_primary/plot_distributions.png)
-
-The heatmap below quantifies these relationships as Pearson correlations.
-
-![Feature × target correlations](data/03_primary/plot_correlations.png)
-
----
-
-## Results
-
-Models are evaluated against two holdout sets: a temporal test set (Jul 2024–present, production-realistic) and a random 10% sample across all time (an upper bound). The temporal test is the honest number — it measures performance on future data the model has never seen.
-
-![Model evaluation — metrics and ROC curves](data/03_primary/plot_metrics.png)
-
-SHAP values explain which features drove each prediction.
-
-![SHAP — precipitation model](data/03_primary/shap_precip.png)
-
-![SHAP — temperature model](data/03_primary/shap_temp.png)
