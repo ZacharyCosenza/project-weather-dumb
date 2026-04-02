@@ -27,39 +27,33 @@ def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
     r = session.get("https://archive-api.open-meteo.com/v1/archive", params={
         "latitude": lat, "longitude": lon,
         "start_date": start, "end_date": end,
-        "hourly": ["temperature_2m", "apparent_temperature", "precipitation",
-                   "snowfall", "weathercode", "cloudcover",
-                   "windspeed_10m", "relativehumidity_2m", "visibility"],
+        "hourly": ["temperature_2m", "precipitation", "snowfall", "weathercode"],
         "timezone": "America/New_York",
     })
     r.raise_for_status()
     h = r.json()["hourly"]
 
-    df = pd.DataFrame({
-        "temperature_c":    h["temperature_2m"],
-        "apparent_temp_c":  h["apparent_temperature"],
-        "precipitation_mm": h["precipitation"],
-        "snowfall_cm":      h["snowfall"],
-        "weathercode":      h["weathercode"],
-        "cloudcover_pct":   h["cloudcover"],
-        "windspeed_kmh":    h["windspeed_10m"],
-        "humidity_pct":     h["relativehumidity_2m"],
-        "visibility_m":     h["visibility"],
-    }, index=pd.to_datetime(h["time"]))
-    df.index.name = "timestamp"
+    temperature_c = pd.Series(h["temperature_2m"])
+    weathercode   = pd.Series(h["weathercode"])
+    index         = pd.to_datetime(h["time"])
 
-    df["precip"] = pd.Categorical(
-        df["weathercode"].map(lambda c: _WMO.get(c, "cloudy")),
+    tgt_precip = pd.Categorical(
+        weathercode.map(lambda c: _WMO.get(c, "cloudy")),
         categories=_PRECIP_ORDER, ordered=True,
     )
-    df["temp"] = pd.Categorical(
-        df["temperature_c"].apply(
+    tgt_temp = pd.Categorical(
+        temperature_c.apply(
             lambda t: "cold" if t < cold_c else "hot" if t > hot_c else "temperate"
         ),
         categories=_TEMP_ORDER, ordered=True,
     )
-    df["precip_int"] = df["precip"].cat.codes
-    df["temp_int"]   = df["temp"].cat.codes
+    df = pd.DataFrame({
+        "tgt_precip":     tgt_precip,
+        "tgt_temp":       tgt_temp,
+        "tgt_precip_int": tgt_precip.codes,
+        "tgt_temp_int":   tgt_temp.codes,
+    }, index=index)
+    df.index.name = "timestamp"
     return df
 
 
@@ -74,7 +68,7 @@ def _fetch_nyiso_month(year: int, month: int) -> pd.Series:
     nyc["timestamp"] = (
         pd.to_datetime(nyc["Time Stamp"]) - pd.Timedelta(minutes=5)
     ).dt.floor("h")
-    return nyc.groupby("timestamp")["Load"].mean().rename("nyiso_load_mw")
+    return nyc.groupby("timestamp")["Load"].mean().rename("ft_nyiso_load_mw")
 
 
 def _fetch_nyiso(start: str, end: str) -> pd.DataFrame:
@@ -90,7 +84,7 @@ def _fetch_nyiso(start: str, end: str) -> pd.DataFrame:
 def _fetch_mta(start: str, end: str) -> pd.DataFrame:
     session = requests_cache.CachedSession("data/00_cache/mta", expire_after=86400)
     r = session.get("https://data.ny.gov/resource/sayj-mze2.json", params={
-        "$where": f"mode in ('Subway', 'Bus') and date >= '{start}T00:00:00' and date <= '{end}T23:59:59'",
+        "$where": f"mode in ('Subway', 'Bus', 'LIRR') and date >= '{start}T00:00:00' and date <= '{end}T23:59:59'",
         "$order": "date ASC",
         "$limit": "10000",
     }, timeout=60)
@@ -101,9 +95,8 @@ def _fetch_mta(start: str, end: str) -> pd.DataFrame:
     raw["date"]  = pd.to_datetime(raw["date"]).dt.normalize()
     raw["count"] = pd.to_numeric(raw["count"], errors="coerce")
     pivot = (
-        raw[raw["mode"].isin(["Subway", "Bus"])]
-        .pivot_table(index="date", columns="mode", values="count", aggfunc="sum")
-        .rename(columns={"Subway": "mta_subway", "Bus": "mta_bus"})
+        raw.pivot_table(index="date", columns="mode", values="count", aggfunc="sum")
+           .rename(columns={"Subway": "ft_mta_subway", "Bus": "ft_mta_bus", "LIRR": "ft_mta_lirr"})
     )
     pivot.index.name = "date"
     return pivot
@@ -133,15 +126,15 @@ def _fetch_311(start: str, end: str) -> pd.DataFrame:
         raw.pivot_table(index="date", columns="complaint_type",
                         values="cnt", aggfunc="sum", fill_value=0)
            .rename(columns={
-               "HEAT/HOT WATER":   "311_heat",
-               "Street Flooding":  "311_flood_street",
-               "Flooded Basement": "311_flood_basement",
-               "Snow":             "311_snow",
+               "HEAT/HOT WATER":   "ft_311_heat",
+               "Street Flooding":  "ft_311_flood_street",
+               "Flooded Basement": "ft_311_flood_basement",
+               "Snow":             "ft_311_snow",
            })
     )
-    flood_cols = [c for c in pivot.columns if c.startswith("311_flood_")]
+    flood_cols = [c for c in pivot.columns if c.startswith("ft_311_flood_")]
     if flood_cols:
-        pivot["311_flood"] = pivot[flood_cols].sum(axis=1)
+        pivot["ft_311_flood"] = pivot[flood_cols].sum(axis=1)
         pivot = pivot.drop(columns=flood_cols)
     pivot.index.name = "date"
     return pivot
@@ -152,8 +145,8 @@ def _fetch_crashes(start: str, end: str) -> pd.DataFrame:
     r = session.get("https://data.cityofnewyork.us/resource/h9gi-nx95.json", params={
         "$select": (
             "date_trunc_ymd(crash_date) as date,"
-            " count(*) as crashes_total,"
-            " sum(case(contributing_factor_vehicle_1='Pavement Slippery',1,true,0)) as crashes_slippery"
+            " count(*) as ft_crashes_total,"
+            " sum(case(contributing_factor_vehicle_1='Pavement Slippery',1,true,0)) as ft_crashes_slippery"
         ),
         "$group":  "date_trunc_ymd(crash_date)",
         "$where":  f"crash_date >= '{start}T00:00:00' AND crash_date <= '{end}T23:59:59'",
@@ -164,10 +157,10 @@ def _fetch_crashes(start: str, end: str) -> pd.DataFrame:
     df = pd.DataFrame(r.json())
     if df.empty:
         return pd.DataFrame()
-    df["date"]             = pd.to_datetime(df["date"]).dt.normalize()
-    df["crashes_total"]    = pd.to_numeric(df["crashes_total"],    errors="coerce").fillna(0).astype(int)
-    df["crashes_slippery"] = pd.to_numeric(df["crashes_slippery"], errors="coerce").fillna(0).astype(int)
-    return df.set_index("date")[["crashes_total", "crashes_slippery"]]
+    df["date"]               = pd.to_datetime(df["date"]).dt.normalize()
+    df["ft_crashes_total"]    = pd.to_numeric(df["ft_crashes_total"],    errors="coerce").fillna(0).astype(int)
+    df["ft_crashes_slippery"] = pd.to_numeric(df["ft_crashes_slippery"], errors="coerce").fillna(0).astype(int)
+    return df.set_index("date")[["ft_crashes_total", "ft_crashes_slippery"]]
 
 
 def fetch_raw(
@@ -201,6 +194,7 @@ def merge_features(
         return hourly.join(lagged, how="left")
 
     hourly = raw_nyiso.join(raw_openmeteo, how="left")
+    hourly["ft_nyiso_delta_3h"] = hourly["ft_nyiso_load_mw"].diff(3)
 
     if not raw_mta.empty:
         hourly = _lag_join(hourly, raw_mta, mta_lag, lag_window)

@@ -2,7 +2,6 @@ nyc_lat: 40.7128
 nyc_lon: -74.0060
 cold_c: 4.44
 hot_c: 26.67
-precip_mm: 1.0
 start_date: "2022-02-01"
 end_date:   "2026-04-01"
 mta_lag: 3
@@ -12,16 +11,18 @@ lag_window: 1
 train_end: "2023-12-31"
 val_end:   "2024-06-30"
 random_test_frac: 0.1
-train_subsample_frac: 0.2
+train_subsample_frac: 0.1
 feature_cols:
-  - nyiso_load_mw
-  - mta_subway
-  - mta_bus
-  - 311_heat
-  - 311_flood
-  - 311_snow
-  - crashes_total
-  - crashes_slippery
+  - ft_nyiso_load_mw
+  - ft_nyiso_delta_3h
+  - ft_mta_subway
+  - ft_mta_bus
+  - ft_mta_lirr
+  - ft_311_heat
+  - ft_311_flood
+  - ft_311_snow
+  - ft_crashes_total
+  - ft_crashes_slippery
 confidence_thresholds:
   high:   0.7
   medium: 0.4

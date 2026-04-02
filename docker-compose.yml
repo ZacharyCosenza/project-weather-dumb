@@ -1,0 +1,28 @@
+services:
+
+  pipeline:
+    build: .
+    image: weather
+    container_name: weather-pipeline
+    restart: unless-stopped
+    command: tail -f /dev/null
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  web:
+    image: weather
+    container_name: weather-web
+    restart: unless-stopped
+    command: streamlit run app/app.py --server.port 8501 --server.address 0.0.0.0
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "8501:8501"
+    depends_on:
+      - pipeline
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -27,14 +27,16 @@ _CONFIDENCE_COLORS = {"high": "#2E7D32", "medium": "#F9A825", "low": "#C62828"}
 
 # Feature labels for matplotlib charts (no emoji — matplotlib can't render them)
 _FEATURE_LABELS = {
-    "nyiso_load_mw":     "NYISO Zone J Grid Load (MW)",
-    "mta_subway":        "NYC Subway Ridership (3-day lag)",
-    "mta_bus":           "NYC Bus Ridership (3-day lag)",
-    "311_heat":          "311 Heat/Hot Water Complaints (2-day lag)",
-    "311_flood":         "311 Flood Complaints (2-day lag)",
-    "311_snow":          "311 Snow Complaints (2-day lag)",
-    "crashes_total":     "Motor Vehicle Crashes, Total (5-day lag)",
-    "crashes_slippery":  "Motor Vehicle Crashes, Slippery Pavement (5-day lag)",
+    "ft_nyiso_load_mw":    "NYISO Zone J Grid Load (MW)",
+    "ft_nyiso_delta_3h":   "NYISO Zone J Load Change, 3-hour (MW)",
+    "ft_mta_subway":       "NYC Subway Ridership (3-day lag)",
+    "ft_mta_bus":          "NYC Bus Ridership (3-day lag)",
+    "ft_mta_lirr":         "LIRR Ridership (3-day lag)",
+    "ft_311_heat":         "311 Heat/Hot Water Complaints (2-day lag)",
+    "ft_311_flood":        "311 Flood Complaints (2-day lag)",
+    "ft_311_snow":         "311 Snow Complaints (2-day lag)",
+    "ft_crashes_total":    "Motor Vehicle Crashes, Total (5-day lag)",
+    "ft_crashes_slippery": "Motor Vehicle Crashes, Slippery Pavement (5-day lag)",
 }
 
 _CONFIDENCE_LABELS = {"high": "High Confidence", "medium": "Medium Confidence", "low": "Low Confidence"}

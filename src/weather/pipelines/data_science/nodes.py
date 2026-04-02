@@ -46,8 +46,8 @@ def _evaluate(model_precip, model_temp, splits, feat):
     """Returns {split_name: {precip: {...}, temp: {...}}} for all named splits."""
     return {
         name: {
-            "precip": _compute_metrics(model_precip, te[feat], te["precip_int"]),
-            "temp":   _compute_metrics(model_temp,   te[feat], te["temp_int"]),
+            "precip": _compute_metrics(model_precip, te[feat], te["tgt_precip_int"]),
+            "temp":   _compute_metrics(model_temp,   te[feat], te["tgt_temp_int"]),
         }
         for name, te in splits.items()
     }
@@ -86,7 +86,7 @@ def _metrics_figure(model_precip, model_temp, splits, feat, eval_results) -> Fig
         # ── OvR ROC curves (temporal test set) ────────────────────────────────
         ax_roc = axes[row, 1]
         te     = splits["temporal"]
-        y_true = te[f"{target}_int"].values
+        y_true = te[f"tgt_{target}_int"].values
         y_prob = model.predict_proba(te[feat])
         y_bin  = label_binarize(y_true, classes=range(len(class_order)))
 
@@ -137,7 +137,7 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
     n_total = len(hourly_features)
     for ax, col in zip(axes, proxy_cols):
         null_pct = hourly_features[col].isna().sum() / n_total * 100
-        groups = [hourly_features.loc[hourly_features["precip"] == c, col].dropna().values
+        groups = [hourly_features.loc[hourly_features["tgt_precip"] == c, col].dropna().values
                   for c in _PRECIP_ORDER]
         bp = ax.boxplot(groups, patch_artist=True, widths=0.5,
                         medianprops={"linewidth": 1.5, "color": "white"})
@@ -157,7 +157,7 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
     plt.close(fig_dist)
 
     # ── Correlations ──────────────────────────────────────────────────────────
-    targets = ["precip_int", "temp_int"]
+    targets = ["tgt_precip_int", "tgt_temp_int"]
     corr_df = hourly_features[proxy_cols + targets].dropna()
     corr    = pd.DataFrame({t: corr_df[proxy_cols].corrwith(corr_df[t]) for t in targets})
 
@@ -178,7 +178,7 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
     # ── Target distributions ───────────────────────────────────────────────────
     fig_targets, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4))
 
-    precip_counts = hourly_features["precip"].value_counts().reindex(_PRECIP_ORDER).fillna(0)
+    precip_counts = hourly_features["tgt_precip"].value_counts().reindex(_PRECIP_ORDER).fillna(0)
     ax1.bar(_PRECIP_ORDER, precip_counts.values,
             color=[_COLORS[c] for c in _PRECIP_ORDER], edgecolor="white", linewidth=0.5)
     for i, v in enumerate(precip_counts.values):
@@ -189,7 +189,7 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
     ax1.grid(axis="y", alpha=0.3)
 
-    temp_counts = hourly_features["temp"].value_counts().reindex(_TEMP_ORDER).fillna(0)
+    temp_counts = hourly_features["tgt_temp"].value_counts().reindex(_TEMP_ORDER).fillna(0)
     ax2.bar(_TEMP_ORDER, temp_counts.values,
             color=[_COLORS[c] for c in _TEMP_ORDER], edgecolor="white", linewidth=0.5)
     for i, v in enumerate(temp_counts.values):
@@ -238,7 +238,7 @@ def train_and_evaluate(
     train_subsample_frac: float = 1.0,
 ) -> tuple[XGBClassifier, XGBClassifier, Figure, Figure, Figure]:
     feat = [c for c in feature_cols if c in hourly_features.columns]
-    df   = hourly_features[feat + ["precip_int", "temp_int"]].dropna(subset=["precip_int", "temp_int"])
+    df   = hourly_features[feat + ["tgt_precip_int", "tgt_temp_int"]].dropna(subset=["tgt_precip_int", "tgt_temp_int"])
 
     train_end_ts = pd.Timestamp(train_end)
     val_end_ts   = pd.Timestamp(val_end)
@@ -250,8 +250,8 @@ def train_and_evaluate(
     if train_subsample_frac < 1.0:
         t_tr = t_tr.sample(frac=train_subsample_frac, random_state=rs)
 
-    model_precip = _train_xgb(t_tr[feat], t_tr["precip_int"], t_val[feat], t_val["precip_int"], 4, xgb)
-    model_temp   = _train_xgb(t_tr[feat], t_tr["temp_int"],   t_val[feat], t_val["temp_int"],   3, xgb)
+    model_precip = _train_xgb(t_tr[feat], t_tr["tgt_precip_int"], t_val[feat], t_val["tgt_precip_int"], 4, xgb)
+    model_temp   = _train_xgb(t_tr[feat], t_tr["tgt_temp_int"],   t_val[feat], t_val["tgt_temp_int"],   3, xgb)
 
     splits  = {"temporal": t_te, "random": df.sample(frac=random_test_frac, random_state=rs)}
     results = _evaluate(model_precip, model_temp, splits, feat)

@@ -1,6 +1,6 @@
 # NYC Proxy Weather Nowcaster
 
-Predict NYC weather conditions using only indirect proxy data — no direct weather measurements as model inputs. Ground truth labels come from Open-Meteo ERA5 reanalysis.
+The goal of this repo is to use the people and the data of New York City to predict the weather, after all, why shouldn't correlation be causation? 
 
 **Targets:** Precipitation class `{clear, cloudy, rainy, snowy}` and temperature class `{cold, temperate, hot}`.
 

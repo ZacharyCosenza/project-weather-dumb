@@ -44,8 +44,30 @@ The pipeline is split into two jobs:
 
 ## Prerequisites
 
-- Docker Desktop installed and running (Settings → Resources → WSL Integration → enabled)
-- Verify in WSL2 terminal:
+- Docker Desktop installed and running (Settings → Resources → WSL Integration → enabled
+  for your WSL distro)
+- Your WSL user must be in the `docker` group, otherwise all `docker` commands fail with
+  a permission denied error on the socket:
+  ```bash
+  sudo usermod -aG docker $USER
+  # Close and reopen your WSL terminal for the group change to take effect
+  groups  # verify "docker" appears in the list
+  ```
+- The Docker Compose plugin must be installed in WSL. Docker Desktop does **not**
+  automatically install it in the Linux distro — install it manually:
+  ```bash
+  # Add Docker's apt repository if not already present
+  sudo apt-get install -y ca-certificates curl
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+  sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+  ```
+- Verify both work in WSL2 terminal:
   ```bash
   docker --version        # should print Docker version 28+
   docker compose version  # should print Compose version 2+
