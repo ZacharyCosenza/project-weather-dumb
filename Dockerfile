@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (separate layer — Docker caches this unless pyproject.toml changes)
-COPY pyproject.toml .
+COPY requirements.txt pyproject.toml .
 COPY src/ src/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir --no-deps .
 
 # Copy application code and config
 # data/ and logs/ are NOT copied — they come from bind mounts at runtime

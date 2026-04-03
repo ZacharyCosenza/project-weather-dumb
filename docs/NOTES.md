@@ -1,0 +1,2 @@
+messed around with updating some production stuff.
+to update, docker compose build to rebuild image -> docker compose up -d to rebuild container using image. The cron job will automatically pick it up.
