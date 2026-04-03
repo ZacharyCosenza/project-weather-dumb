@@ -13,10 +13,7 @@ __pycache__/
 
 # Data
 *.sqlite
-data/00_cache/
-data/01_raw/
-data/02_intermediate/
-data/03_primary/
+data/
 
 # Kedro
 logs/
