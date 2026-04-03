@@ -21,7 +21,7 @@ _TEMP_COLORS = {
 }
 _EMOJIS = {
     "clear": "☀️", "cloudy": "☁️", "rainy": "🌧️", "snowy": "❄️",
-    "cold": "🥶", "temperate": "🌤️", "hot": "🥵",
+    "cold": "🥶", "temperate": "😊", "hot": "🥵",
 }
 _CONFIDENCE_COLORS = {"high": "#2E7D32", "medium": "#F9A825", "low": "#C62828"}
 
