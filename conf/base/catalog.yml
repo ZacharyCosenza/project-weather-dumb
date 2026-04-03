@@ -23,6 +23,7 @@ raw_crashes:
   filepath: data/01_raw/crashes.parquet
   save_args: {engine: pyarrow, index: true}
 
+
 hourly_features:
   type: pandas.ParquetDataset
   filepath: data/02_intermediate/hourly_features.parquet

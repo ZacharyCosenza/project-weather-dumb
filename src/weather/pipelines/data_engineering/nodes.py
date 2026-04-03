@@ -163,6 +163,7 @@ def _fetch_crashes(start: str, end: str) -> pd.DataFrame:
     return df.set_index("date")[["ft_crashes_total", "ft_crashes_slippery"]]
 
 
+
 def fetch_raw(
     start_date: str, end_date: str,
     nyc_lat: float, nyc_lon: float,
