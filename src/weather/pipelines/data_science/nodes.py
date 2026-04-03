@@ -109,19 +109,43 @@ def _metrics_figure(model_precip, model_temp, splits, feat, eval_results) -> Fig
     return fig
 
 
-def _shap_beeswarm(model: XGBClassifier, X: pd.DataFrame, label: str) -> Figure:
+def _shap_beeswarm(model: XGBClassifier, X: pd.DataFrame, label: str, class_order: list[str]) -> Figure:
     exp = shap.TreeExplainer(model)(X)
-    mean_abs = shap.Explanation(
-        values        = np.abs(exp.values).mean(-1),
-        base_values   = exp.base_values.mean(-1),
-        data          = exp.data,
-        feature_names = list(X.columns),
-    )
-    shap.plots.beeswarm(mean_abs, max_display=len(X.columns), color=_DIV_CMAP, show=False)
-    plt.title(f"{label} — SHAP Beeswarm (mean |SHAP| across classes)")
-    plt.tight_layout()
-    fig = plt.gcf()
-    plt.close()
+
+    # Render one beeswarm per class into its own temp figure, then assemble into a grid.
+    # exp.values shape: (n_samples, n_features, n_classes)
+    n_cls = len(class_order)
+    sub_figs = []
+    for i in range(n_cls):
+        cls_exp = shap.Explanation(
+            values        = exp.values[:, :, i],
+            base_values   = exp.base_values[:, i],
+            data          = exp.data,
+            feature_names = list(X.columns),
+        )
+        shap.plots.beeswarm(cls_exp, max_display=len(X.columns), color=_DIV_CMAP, show=False)
+        plt.title(class_order[i].capitalize(), fontsize=11, fontweight="bold")
+        plt.tight_layout()
+        sub_fig = plt.gcf()
+        sub_fig.canvas.draw()
+        sub_figs.append(np.asarray(sub_fig.canvas.buffer_rgba()))
+        plt.close()
+
+    n_cols = min(2, n_cls)
+    n_rows = (n_cls + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(9 * n_cols, 6 * n_rows))
+    axes_flat = np.array(axes).flatten()
+
+    for i, (img, cls_name) in enumerate(zip(sub_figs, class_order)):
+        axes_flat[i].imshow(img)
+        axes_flat[i].axis("off")
+
+    for ax in axes_flat[n_cls:]:
+        ax.set_visible(False)
+
+    fig.suptitle(f"{label} — SHAP Beeswarm by Class", fontsize=13, fontweight="bold")
+    fig.tight_layout()
+    plt.close(fig)
     return fig
 
 
@@ -260,6 +284,6 @@ def train_and_evaluate(
         model_precip,
         model_temp,
         _metrics_figure(model_precip, model_temp, splits, feat, results),
-        _shap_beeswarm(model_precip, t_te[feat], "Precip"),
-        _shap_beeswarm(model_temp,   t_te[feat], "Temp"),
+        _shap_beeswarm(model_precip, t_te[feat], "Precip", _PRECIP_ORDER),
+        _shap_beeswarm(model_temp,   t_te[feat], "Temp",   _TEMP_ORDER),
     )

@@ -65,11 +65,11 @@ Models are evaluated against two holdout sets: a temporal test set (Jul 2024–p
 
 ![Model evaluation — metrics and ROC curves](data/03_primary/plot_metrics.png)
 
-SHAP values explain which features drove each prediction.
+SHAP values explain which features drove each prediction, broken out per class. Each panel shows how features push the model toward that specific class — high NYISO load, for example, has a large positive effect on "hot" and a large negative effect on "cold", which would cancel out in a class-averaged view.
 
-![SHAP — precipitation model](data/03_primary/shap_precip.png)
+![SHAP — precipitation model (per class)](data/03_primary/shap_precip.png)
 
-![SHAP — temperature model](data/03_primary/shap_temp.png)
+![SHAP — temperature model (per class)](data/03_primary/shap_temp.png)
 
 ## Quick Start
 
