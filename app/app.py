@@ -104,6 +104,27 @@ if st.button("↻ Refresh"):
 
 preds = load_predictions()
 st.caption(f"Features current as of: {preds['timestamp']} · Retrain cadence: hourly")
+
+if qc := preds.get("qc"):
+    overall = qc["overall"]
+    _QC_COLOR = {"pass": "#2E7D32", "warn": "#F9A825", "fail": "#C62828"}
+    _QC_LABEL = {"pass": "QC Pass", "warn": "QC Warning", "fail": "QC Fail"}
+    st.markdown(
+        f'<span style="background:{_QC_COLOR[overall]};color:white;padding:3px 12px;'
+        f'border-radius:12px;font-size:0.85rem;font-weight:600">{_QC_LABEL[overall]}</span>',
+        unsafe_allow_html=True,
+    )
+    if overall != "pass":
+        with st.expander("QC details"):
+            checks = qc["checks"]
+            st.write(f"**Timestamp age:** {checks['timestamp_age_h']['value']}h — {checks['timestamp_age_h']['status']}")
+            fc = checks["feature_coverage"]
+            st.write(f"**Feature coverage:** {fc['value']*100:.0f}%{' — missing: ' + ', '.join(fc['missing']) if fc['missing'] else ''} — {fc['status']}")
+            for target in ("precip", "temp"):
+                ps = checks["prob_sum"][target]
+                st.write(f"**{target.capitalize()} prob sum:** {ps['value']} — {ps['status']}")
+            st.write(f"**SHAP finite:** {checks['shap_finite']['status']}")
+
 st.divider()
 
 st.subheader("Current Feature Values")
