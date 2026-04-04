@@ -23,6 +23,31 @@ raw_crashes:
   filepath: data/01_raw/crashes.parquet
   save_args: {engine: pyarrow, index: true}
 
+raw_floodnet:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/floodnet.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_bike_ped:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/bike_ped.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_cz:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/congestion_zone.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_evictions:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/evictions.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_dot:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/dot_speeds.parquet
+  save_args: {engine: pyarrow, index: true}
+
 
 hourly_features:
   type: pandas.ParquetDataset

@@ -47,8 +47,10 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
 - **Lag:** ~2 weeks after month end
 - **Granularity:** Per trip
 - **Key fields:** `started_at`, `ended_at`, `start_station_id`, `end_station_id`, `rideable_type` (classic_bike / electric_bike), `member_casual`
-- **File naming:** `YYYYMM-citibike-tripdata.csv.zip`
-- **Notes:** Fetch the most recent month file with `requests`. Parse with pandas directly from the zip.
+- **File naming:** `YYYYMM-citibike-tripdata.zip` (no `.csv` in name for files from ~mid-2025 onward; older files used `.csv.zip`)
+- **Jersey City subset:** `JC-YYYYMM-citibike-tripdata.csv.zip` — same schema, ~5MB vs 200-500MB for NYC-wide files
+- **CAVEAT:** NYC-wide monthly files are 200–500MB. A 4-year backfill requires ~24GB of downloads. For lightweight feasibility testing use the JC subset. For production, consider whether the volume justifies the storage cost.
+- **Notes:** Current month file is not published — start lookback from previous month. Parse with `zipfile` + `pandas` directly from the in-memory response.
 
 ### TLC Industry Indicators (Uber/Lyft/Yellow/Green)
 - **Endpoint:** `https://data.cityofnewyork.us/resource/v6kb-cqej.json`

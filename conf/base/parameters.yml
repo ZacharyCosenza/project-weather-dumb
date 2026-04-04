@@ -7,6 +7,11 @@ end_date:   "2026-04-03"
 mta_lag: 3
 lag_311: 2
 crashes_lag: 5
+floodnet_lag: 2
+bike_ped_lag: 1
+cz_lag: 21
+evictions_lag: 2
+dot_lag: 1
 lag_window: 1
 train_end: "2023-12-31"
 val_end:   "2024-06-30"
@@ -23,6 +28,14 @@ feature_cols:
   - ft_311_snow
   - ft_crashes_total
   - ft_crashes_slippery
+  - ft_floodnet_events
+  - ft_floodnet_max_depth_in
+  - ft_ped_bike
+  - ft_ped_pedestrian
+  - ft_cz_total
+  - ft_evictions
+  - ft_dot_speed_avg
+  - ft_dot_speed_delta
 confidence_thresholds:
   high:   0.7
   medium: 0.4

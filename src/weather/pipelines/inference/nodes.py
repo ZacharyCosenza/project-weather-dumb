@@ -1,9 +1,12 @@
+import logging
 import math
 from datetime import datetime, timezone
 
 import shap
 import pandas as pd
 from xgboost import XGBClassifier
+
+log = logging.getLogger(__name__)
 
 _PRECIP_ORDER = ["clear", "cloudy", "rainy", "snowy"]
 _TEMP_ORDER   = ["cold", "temperate", "hot"]
@@ -114,5 +117,18 @@ def run_qc(predictions: dict, feature_cols: list[str]) -> dict:
         + [checks["prob_sum"][t]["status"] for t in ("precip", "temp")]
     )
     overall = "fail" if "fail" in all_statuses else ("warn" if "warn" in all_statuses else "pass")
+
+    # Log QC summary — appears in cron.log via kedro run output
+    fc = checks["feature_coverage"]
+    missing_str = f" missing={fc['missing']}" if fc["missing"] else ""
+    log_fn = log.warning if overall != "pass" else log.info
+    log_fn(
+        "QC %s | age=%.1fh(%s) coverage=%.0f%%%s%s prob_sum=precip:%s,temp:%s shap=%s",
+        overall.upper(),
+        checks["timestamp_age_h"]["value"], checks["timestamp_age_h"]["status"],
+        fc["value"] * 100, missing_str, " " if missing_str else "",
+        checks["prob_sum"]["precip"]["status"], checks["prob_sum"]["temp"]["status"],
+        checks["shap_finite"]["status"],
+    )
 
     return {**predictions, "qc": {"overall": overall, "checks": checks}}
