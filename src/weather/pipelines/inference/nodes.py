@@ -53,7 +53,7 @@ def run_inference(
     latest  = hourly_features[feat].iloc[[-1]]
     ts      = str(latest.index[0])
 
-    log.info(f"Model Inference Input: {latest}")
+    log.info(f"Model Inference Input: {latest.T}")
 
     return {
         "timestamp": ts,
