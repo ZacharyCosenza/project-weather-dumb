@@ -53,6 +53,8 @@ def run_inference(
     latest  = hourly_features[feat].iloc[[-1]]
     ts      = str(latest.index[0])
 
+    log.info(f"Model Inference Input: {latest}")
+
     return {
         "timestamp": ts,
         "features":  {col: (None if pd.isna(v := latest[col].iloc[0]) else round(float(v), 2)) for col in feat},
