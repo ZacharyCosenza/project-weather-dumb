@@ -1,6 +1,6 @@
 from kedro.pipeline import Pipeline, node, pipeline
 
-from .nodes import run_inference, run_qc
+from .nodes import run_inference
 
 
 def create_pipeline(**kwargs) -> Pipeline:
@@ -14,16 +14,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 "feature_cols":          "params:feature_cols",
                 "confidence_thresholds": "params:confidence_thresholds",
             },
-            outputs="predictions_raw",
-            name="run_inference",
-        ),
-        node(
-            func=run_qc,
-            inputs={
-                "predictions": "predictions_raw",
-                "feature_cols": "params:feature_cols",
-            },
             outputs="predictions",
-            name="run_qc",
-        ),
+            name="run_inference",
+        )
     ])

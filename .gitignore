@@ -1,6 +1,9 @@
 # Env
 .venv
 
+# Kedro
+conf/local/
+
 # Python
 __pycache__/
 *.py[cod]

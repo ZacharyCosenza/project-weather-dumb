@@ -1,6 +1,6 @@
 # NYC Free API Reference
 
-All endpoints verified via live API call on 2026-04-03.
+All endpoints verified via live API call on 2026-04-03 (Ferry + MLB verified 2026-04-04).
 
 All Socrata endpoints follow the pattern:
 ```
@@ -11,7 +11,52 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
 
 ---
 
+## Ground Truth / Labels
+
+### Open-Meteo ERA5 Reanalysis
+- **Endpoint:** `https://archive-api.open-meteo.com/v1/archive`
+- **Lag:** ~5 days (ERA5 reanalysis has a processing delay)
+- **Granularity:** Hourly, per coordinate
+- **Key fields:** `hourly.time`, `hourly.temperature_2m`, `hourly.precipitation`, `hourly.snowfall`, `hourly.weathercode`
+- **Notes:** Used as ground truth labels only — not a feature input. WMO weather codes map to `_PRECIP_ORDER` classes; temperature thresholds map to `_TEMP_ORDER` classes. Cached via `requests_cache` with a 24h TTL. No API key required. ERA5 lag means recent rows have NaN labels — inference only needs proxy features so this is fine.
+- **Sample query:**
+  ```python
+  params={
+      "latitude": 40.7128, "longitude": -74.0060,
+      "start_date": "2020-01-01", "end_date": "2026-04-04",
+      "hourly": ["temperature_2m", "precipitation", "snowfall", "weathercode"],
+      "timezone": "America/New_York",
+  }
+  ```
+
+---
+
 ## Transport & Mobility
+
+### NYISO Zone J Real-Time Load
+- **Endpoint:** `https://mis.nyiso.com/public/csv/pal/{YYYY}{MM}01pal_csv.zip`
+- **Lag:** ~0.2h (real-time, published every 5 minutes)
+- **Granularity:** 5-minute intervals, by zone
+- **Key fields:** `Time Stamp`, `Name` (zone), `Load` (MW)
+- **Notes:** Not a Socrata API — monthly ZIP files, each containing one CSV per day. Filter to `Name == "N.Y.C."` for Zone J. Timestamps are 5 minutes ahead of the interval end; subtract 5 min and floor to hour to align with the hourly index. Base index for `merge_features` — all other sources are joined onto NYISO's hourly grid.
+- **Sample fetch:**
+  ```python
+  url = f"https://mis.nyiso.com/public/csv/pal/{year}{month:02d}01pal_csv.zip"
+  r = requests.get(url, timeout=30)
+  with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+      frames = [pd.read_csv(z.open(name)) for name in z.namelist()]
+  ```
+
+### MTA Ridership by Mode
+- **Endpoint:** `https://data.ny.gov/resource/sayj-mze2.json`
+- **Lag:** ~1 day (most recent: 2026-04-02)
+- **Granularity:** Daily, by mode
+- **Key fields:** `date`, `mode` (Subway / Bus / LIRR / Metro-North / Access-A-Ride / Bridges and Tunnels / Staten Island Railway), `count`
+- **Notes:** Filter `$where` to `mode in ('Subway', 'Bus', 'LIRR')` — fetching all modes hits `$limit=10000` and truncates other sources. MTA hourly-by-borough datasets (f462-ka72 / 5wq4-mkjj) were evaluated but have ~180h publication lag — too stale.
+- **Sample query:**
+  ```
+  $where=mode in ('Subway', 'Bus', 'LIRR') and date >= '2026-01-01T00:00:00'&$order=date ASC&$limit=10000
+  ```
 
 ### MTA Congestion Relief Zone Vehicle Entries
 - **Endpoint:** `https://data.ny.gov/resource/t6yz-b64h.json`
@@ -84,6 +129,17 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
   $order=month DESC&$limit=1000
   ```
 
+### NYC Ferry Ridership
+- **Endpoint:** `https://data.cityofnewyork.us/resource/t5n6-gx8c.json`
+- **Lag:** ~2 months (most recent: 2026-01-28)
+- **Granularity:** Per hour, per route, per stop
+- **Key fields:** `date`, `hour`, `route`, `direction`, `stop`, `boardings`, `typeday` (Weekday/Weekend)
+- **Notes:** Aggregate all routes daily for a city-level outdoor activity signal. Ferry ridership drops sharply in bad weather. Server-side `date_trunc_ymd` + `sum(boardings)` aggregation works cleanly.
+- **Sample query (daily totals):**
+  ```
+  $select=date_trunc_ymd(date) as day, sum(boardings) as total_boardings&$group=date_trunc_ymd(date)&$order=day DESC&$limit=1000
+  ```
+
 ### NYC DOT Bicycle & Pedestrian Counts
 - **Endpoint:** `https://data.cityofnewyork.us/resource/ct66-47at.json`
 - **Lag:** Real-time (~15 min)
@@ -134,6 +190,32 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
 - **Granularity:** Per sample, per site, per month
 - **Key fields:** `sample_date`, `sampling_location`, `residual_free_chlorine_mg_l`, `turbidity_ntu`, `coliform_quanti_tray_mpn_100ml`, `e_coli_quanti_tray_mpn_100ml`
 - **Notes:** Turbidity spikes can follow heavy rainfall overwhelming filtration systems.
+
+---
+
+## City Services
+
+### NYC 311 Service Requests
+- **Endpoint:** `https://data.cityofnewyork.us/resource/erm2-nwe9.json`
+- **Lag:** ~2 days
+- **Granularity:** Per complaint
+- **Key fields:** `created_date`, `complaint_type`, `descriptor`, `borough`, `incident_zip`, `latitude`, `longitude`
+- **Notes:** Currently used for Heat/Hot Water, Street Flooding, Flooded Basement, and Snow complaint types, aggregated citywide. Has `borough` field — see **Location Specificity** section below for per-borough breakdown. 24M+ rows total; always filter by `created_date` and `complaint_type` to avoid hitting limits.
+- **Sample query (daily counts by complaint type):**
+  ```
+  $select=date_trunc_ymd(created_date) as date, complaint_type, count(*) as cnt&$group=date_trunc_ymd(created_date), complaint_type&$where=complaint_type in ('HEAT/HOT WATER','Street Flooding','Snow') and created_date >= '2026-01-01T00:00:00'&$limit=50000
+  ```
+
+### Motor Vehicle Crashes
+- **Endpoint:** `https://data.cityofnewyork.us/resource/h9gi-nx95.json`
+- **Lag:** ~5 days (tight — only ~6h margin above publication lag)
+- **Granularity:** Per crash
+- **Key fields:** `crash_date`, `borough`, `zip_code`, `latitude`, `longitude`, `contributing_factor_vehicle_1`, `number_of_persons_injured`, `number_of_persons_killed`
+- **Notes:** Used for total crash count and `Pavement Slippery` contributing factor. Has `borough` field — per-borough breakdown is feasible. Server-side `sum(case(...))` for slippery pavement works correctly.
+- **Sample query (daily total + slippery):**
+  ```
+  $select=date_trunc_ymd(crash_date) as date, count(*) as total, sum(case(contributing_factor_vehicle_1='Pavement Slippery',1,true,0)) as slippery&$group=date_trunc_ymd(crash_date)&$where=crash_date >= '2026-01-01T00:00:00'&$order=date ASC&$limit=5000
+  ```
 
 ---
 
@@ -224,6 +306,19 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
 
 ## Events
 
+### NYC Permitted Events (CECM)
+- **Endpoint:** `https://data.cityofnewyork.us/resource/tvpp-9vvx.json`
+- **Lag:** Near-real-time (permits filed in advance; dataset spans from 2024-06-30 onward)
+- **Granularity:** Per permitted event
+- **Key fields:** `event_name`, `start_date_time`, `end_date_time`, `event_type`, `event_agency`, `event_borough`, `event_location`, `street_closure_type`
+- **Event types (by volume):** Sport-Youth (24k), Sport-Adult (6.7k), Special Event (4.4k), Religious Event (144), Parade (32), Farmers Market (48), Street Festival (17)
+- **Notes:** Managed by the Office of Citywide Event Coordination and Management. Includes future events (published in advance) and history back to mid-2024 only — too short for model training on its own. Most volume is youth/adult sports in parks. Weather-correlated subset: Parade + Street Festival + Farmers Market (~97 events total). Filter by `event_type` and `street_closure_type` for outdoor/street-impacting events.
+- **CAVEAT:** Only ~2 years of history. Useful as a live feature but will have near-zero SHAP weight until more data accumulates.
+- **Sample query (street-impacting events):**
+  ```
+  $where=start_date_time >= '2024-06-30T00:00:00' and event_type in ('Parade','Street Festival','Farmers Market','Special Event')&$order=start_date_time DESC&$limit=5000
+  ```
+
 ### NYC Film Permits
 - **Endpoint:** `https://data.cityofnewyork.us/resource/tg4x-b46p.json`
 - **Lag:** Near-daily (permits filed in advance; most recent event start: 2026-01-02)
@@ -237,11 +332,89 @@ dev.socrata.com and pass it as `$$app_token=<token>`.
 
 ---
 
+## Sports & Entertainment
+
+### NHL — Rangers & Islanders Home Game Schedule
+- **Endpoint:** `https://api-web.nhle.com/v1/club-schedule-season/{TEAM}/{SEASON}`
+- **Lag:** Live (scores within minutes of game end; schedule published months in advance)
+- **Granularity:** Per game
+- **Key fields:** `gameDate`, `homeTeam.abbrev`, `homeTeam.score`, `awayTeam.abbrev`, `awayTeam.score`, `gameState` (`FUT`=future, `LIVE`=in progress, `OFF`=final), `venue.default`
+- **Team codes:** Rangers = `NYR` (Madison Square Garden), Islanders = `NYI` (UBS Arena, Elmont)
+- **Season format:** `20252026` for the 2025-26 season. No API key required.
+- **Notes:** Each team plays 44 home games/season (Oct–Apr). Use `homeTeam.abbrev in (NYR, NYI)` to filter home dates. MSG home games drive heavy midtown foot traffic. UBS Arena is in Nassau County so Islander games have lower direct NYC transit impact.
+- **Sample fetch:**
+  ```
+  GET https://api-web.nhle.com/v1/club-schedule-season/NYR/20252026
+  ```
+
+### MLB — Mets & Yankees Home Game Schedule
+- **Endpoint:** `https://statsapi.mlb.com/api/v1/schedule`
+- **Lag:** Live (schedule published months in advance; scores within hours of game end)
+- **Granularity:** Per game
+- **Key fields:** `dates[].date`, `dates[].games[].teams.home.team.id`, `dates[].games[].venue.name`
+- **Team IDs:** Mets = 121, Yankees = 147. Citi Field and Yankee Stadium are the NYC home venues.
+- **No API key required.** No auth. Standard JSON response.
+- **Notes:** Use `teams.home.team.id in (121, 147)` to filter for NYC home games. Home games drive subway ridership spikes and 311 noise complaints in the surrounding neighborhoods. Binary daily flag (home game Y/N) is the natural feature.
+- **Sample query (Mets + Yankees, date range, regular season):**
+  ```
+  https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId=121,147&startDate=2026-04-01&endDate=2026-04-30&gameType=R
+  ```
+
+---
+
+## Location Specificity
+
+Several sources carry a `borough` field that makes per-borough features trivially cheap to add. The tradeoff: more features, noisier signal per feature (smaller denominator), and a wider feature vector the model has to learn from.
+
+### Sources with borough support
+
+| Source | Field | Values |
+|---|---|---|
+| 311 complaints | `borough` | `MANHATTAN`, `BROOKLYN`, `QUEENS`, `BRONX`, `STATEN ISLAND` |
+| Motor vehicle crashes | `borough` | same |
+| Evictions | `borough` | same |
+| NYPD arrests | `arrest_boro` | `M`, `K`, `Q`, `B`, `S` |
+| Restaurant inspections | `borough` | same as 311 |
+| HPD violations | `boroid` | `1`–`5` |
+
+### How to pivot
+
+Add `borough` to the `$group` clause and pivot the result:
+```python
+# 311 heat complaints by borough
+$select=date_trunc_ymd(created_date) as date, borough, count(*) as cnt
+$group=date_trunc_ymd(created_date), borough
+$where=complaint_type='HEAT/HOT WATER' and created_date >= '...'
+
+# In pandas:
+pivot = df.pivot_table(index="date", columns="borough", values="cnt", aggfunc="sum", fill_value=0)
+pivot.columns = [f"ft_311_heat_{b.lower().replace(' ', '_')}" for b in pivot.columns]
+# → ft_311_heat_manhattan, ft_311_heat_brooklyn, ft_311_heat_queens, ft_311_heat_bronx, ft_311_heat_staten_island
+```
+
+### Silly use cases worth considering
+
+- **Queens-only 311 flood complaints** — Citi Field sits in a flood-prone area of Flushing; Queens flooding 311 calls might be a sharper signal than citywide.
+- **Bronx crash slippery pavement** — Yankee Stadium area has historically poor drainage; Bronx-only slippery crashes could precede snow/ice events.
+- **Manhattan heat complaints** — Dense residential towers means Manhattan heat complaints spike earlier and harder than outer boroughs in heatwaves.
+- **Borough crash ratios** — e.g., `ft_crashes_bronx / ft_crashes_total` as a normalized signal, insulated from baseline volume changes.
+
+### Practical note
+
+Borough expansion multiplies feature count by ~5 per source. With 3 complaint types × 5 boroughs you get 15 features instead of 3. The model handles this fine but training data per cell shrinks. Run feature importance after retraining — SHAP will tell you which boroughs are actually pulling weight.
+
+---
+
 ## Confirmed Failures (Do Not Use)
 
 | Dataset | Endpoint | Issue |
 |---|---|---|
 | NYC Air Quality (DOHMH) | `c3uy-2p5r` | Most recent data is Summer 2023 — >2 year lag. Exceeds 6-month threshold. |
+| NBA stats (Knicks/Nets) | `stats.nba.com/stats/leaguegamelog` | Blocks non-browser requests; times out from WSL/server environments. Use the nba_api Python library as a workaround, but it's fragile. |
+| NY Lottery | `data.ny.gov/resource/d6yy-54nr.json` | Only winning numbers and multiplier — no ticket sales volume. Not useful as a weather proxy. |
+| NYC Parks Events | `data.cityofnewyork.us/resource/fudw-fgrp.json` | Dataset is stale; most recent record is 2018. |
+| Broadway League grosses | broadwayleague.com | No machine-readable API. Weekly PDF/web only. Requires scraping. |
+| NYRA horse racing handle | nyra.com | No API. Race schedules are on the website; betting handle is buried in PDF reports. |
 
 ---
 

@@ -1,10 +1,28 @@
 import io
+import logging
+import time
 import zipfile
 
 import pandas as pd
 import requests
 import requests_cache
 from retry_requests import retry
+
+log = logging.getLogger(__name__)
+
+
+def _log_fetch(name: str, df: pd.DataFrame, elapsed: float) -> None:
+    if df.empty:
+        log.info("fetch %-22s  rows=0  [%.1fs]", name, elapsed)
+        return
+    idx = df.index
+    date_range = f"{idx.min().date()} → {idx.max().date()}"
+    null_frac  = df.isnull().mean().mean()
+    cols       = ", ".join(df.columns.tolist())
+    log.info(
+        "fetch %-22s  rows=%-6d  %s  null=%.0f%%  cols=[%s]  [%.1fs]",
+        name, len(df), date_range, null_frac * 100, cols, elapsed,
+    )
 
 _WMO = {
     0: "clear",  1: "clear",  2: "cloudy", 3: "cloudy", 45: "cloudy", 48: "cloudy",
@@ -29,7 +47,7 @@ def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
         "start_date": start, "end_date": end,
         "hourly": ["temperature_2m", "precipitation", "snowfall", "weathercode"],
         "timezone": "America/New_York",
-    })
+    }, timeout=60)
     r.raise_for_status()
     h = r.json()["hourly"]
 
@@ -57,9 +75,12 @@ def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
     return df
 
 
+_nyiso_session = requests_cache.CachedSession("data/00_cache/nyiso", expire_after=86400)
+
+
 def _fetch_nyiso_month(year: int, month: int) -> pd.Series:
     url = f"https://mis.nyiso.com/public/csv/pal/{year}{month:02d}01pal_csv.zip"
-    r = requests.get(url, timeout=30)
+    r = _nyiso_session.get(url, timeout=30)
     r.raise_for_status()
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         frames = [pd.read_csv(z.open(name)) for name in z.namelist()]
@@ -73,11 +94,12 @@ def _fetch_nyiso_month(year: int, month: int) -> pd.Series:
 
 def _fetch_nyiso(start: str, end: str) -> pd.DataFrame:
     parts = []
-    for p in pd.period_range(start, end, freq="M"):
+    months = list(pd.period_range(start, end, freq="M"))
+    for p in months:
         try:
             parts.append(_fetch_nyiso_month(p.year, p.month))
         except Exception as e:
-            print(f"WARNING NYISO {p.year}-{p.month:02d}: {e}")
+            log.warning("NYISO %s-%02d: %s", p.year, p.month, e)
     return pd.concat(parts).sort_index().to_frame()
 
 
@@ -279,17 +301,39 @@ def fetch_raw(
     cold_c: float, hot_c: float,
     dot_start_date: str,
 ) -> tuple:
+    def _timed(name: str, fn, *args):
+        log.info("fetch %-22s  starting...", name)
+        t0 = time.perf_counter()
+        try:
+            df = fn(*args)
+        except Exception as exc:
+            log.warning("fetch %-22s  FAILED — returning empty  [%.1fs]  %s",
+                        name, time.perf_counter() - t0, exc)
+            return pd.DataFrame()
+        _log_fetch(name, df, time.perf_counter() - t0)
+        return df
+
+    raw_nyiso = _timed("nyiso", _fetch_nyiso, start_date, end_date)
+    if raw_nyiso.empty:
+        log.warning("nyiso fetch failed — using hourly date spine fallback (%s → %s)",
+                    start_date, end_date)
+        raw_nyiso = pd.DataFrame(
+            {"ft_nyiso_load_mw": float("nan")},
+            index=pd.date_range(start_date, end_date, freq="h"),
+        )
+        raw_nyiso.index.name = "timestamp"
+
     return (
-        _fetch_openmeteo(start_date, end_date, nyc_lat, nyc_lon, cold_c, hot_c),
-        _fetch_nyiso(start_date, end_date),
-        _fetch_mta(start_date, end_date),
-        _fetch_311(start_date, end_date),
-        _fetch_crashes(start_date, end_date),
-        _fetch_floodnet(start_date, end_date),
-        _fetch_bike_ped(start_date, end_date),
-        _fetch_congestion_zone(start_date, end_date),
-        _fetch_evictions(start_date, end_date),
-        _fetch_dot_speeds(dot_start_date, end_date),
+        _timed("openmeteo",       _fetch_openmeteo, start_date, end_date, nyc_lat, nyc_lon, cold_c, hot_c),
+        raw_nyiso,
+        _timed("mta",             _fetch_mta,             start_date, end_date),
+        _timed("311",             _fetch_311,             start_date, end_date),
+        _timed("crashes",         _fetch_crashes,         start_date, end_date),
+        _timed("floodnet",        _fetch_floodnet,        start_date, end_date),
+        _timed("bike_ped",        _fetch_bike_ped,        start_date, end_date),
+        _timed("congestion_zone", _fetch_congestion_zone, start_date, end_date),
+        _timed("evictions",       _fetch_evictions,       start_date, end_date),
+        _timed("dot_speeds",      _fetch_dot_speeds,      dot_start_date, end_date),
     )
 
 
@@ -319,8 +363,6 @@ def merge_features(
             raise TypeError(f"_lag_join expects DatetimeIndex, got {type(daily.index).__name__}")
         daily = daily[~daily.index.duplicated(keep="first")].sort_index()
         daily.index = daily.index.tz_localize(None) if daily.index.tz else daily.index
-        # Fill to a dense daily grid first — sparse sources (e.g. FloodNet only has flood days)
-        # cause reindex(hourly.index) to allocate across the full nanosecond range.
         full_days = pd.date_range(daily.index.min(), hourly.index.max().normalize(), freq="D")
         daily = daily.reindex(full_days, method="ffill")
         daily_h = daily.reindex(hourly.index, method="ffill")

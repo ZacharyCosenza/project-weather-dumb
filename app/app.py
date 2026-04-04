@@ -66,7 +66,7 @@ def confidence_badge(level: str) -> None:
     )
 
 
-_CHART_SIZE = (3, 1.4)
+_CHART_SIZE = (3, 2.4)
 
 
 def shap_chart(prediction: str, shap_vals: dict, pred_color: str) -> plt.Figure:
