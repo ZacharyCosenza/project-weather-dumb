@@ -608,6 +608,399 @@ a new machine, `crontab cron/crontab.txt` installs all jobs at once.
 
 ---
 
+## Module 11 — pytest Deep Dive: Writing and Structuring Tests
+
+### Why it matters
+
+Module 6 introduced testing as a concept. This module goes deeper into pytest mechanics —
+how to write tests that are fast, readable, maintainable, and actually catch the bugs
+that matter. A test suite that's slow, fragile, or hard to read gets disabled or ignored.
+A well-written test suite is a force multiplier on everything else in this guide.
+
+---
+
+### Project structure
+
+```
+tests/
+    __init__.py               # makes tests/ a Python package
+    conftest.py               # shared fixtures loaded automatically by pytest
+    test_data_engineering.py  # tests for merge_features and related nodes
+    test_inference.py         # tests for run_inference
+    test_qc.py                # tests for run_qc (problem set exercise)
+```
+
+Pytest discovers any file matching `test_*.py` or `*_test.py`. Inside those files, any
+function starting with `test_` is collected and run. That's the full convention.
+
+---
+
+### Fixtures
+
+Fixtures are the most important pytest concept. They are reusable setup functions,
+declared with `@pytest.fixture` and injected by name into test arguments.
+
+**Where to put fixtures:**
+- `conftest.py` — available to all test files in the same directory and below, automatically
+- Inside a test file — available only within that file
+- Multiple `conftest.py` files can exist at different directory levels; pytest merges them
+
+**In this repo** (`tests/conftest.py`):
+
+```python
+@pytest.fixture
+def fake_hourly():
+    rng = np.random.default_rng(42)          # fixed seed → deterministic
+    idx = pd.date_range("2024-01-01", periods=200, freq="h")
+    return pd.DataFrame({
+        "ft_nyiso_load_mw":    rng.uniform(3000, 8000, 200),
+        "ft_mta_subway":       rng.uniform(1e6,   5e6, 200),
+        ...
+    }, index=idx)
+
+@pytest.fixture
+def fake_model_precip(fake_hourly):     # fixtures can depend on other fixtures
+    return _tiny_xgb(fake_hourly[_FEAT_COLS], 4)
+```
+
+Key design decisions in the repo's fixtures:
+- **Fixed seed (`42`)** — random data but deterministic. Tests never flap due to random variation.
+- **Tiny model (`n_estimators=5`, `max_depth=2`)** — builds in milliseconds. No need to cache it.
+- **Synthetic data only** — no network calls, no parquet files. Tests run offline, in CI, inside Docker.
+- **Fixture composition** — `fake_model_precip` receives `fake_hourly` as an argument. Pytest resolves
+  the dependency graph automatically. You never call fixtures directly.
+
+**Fixture scope** — by default, fixtures run fresh per test. Use `scope="module"` or `scope="session"`
+if setup is expensive and safe to share:
+
+```python
+@pytest.fixture(scope="session")
+def big_dataframe():
+    return pd.read_parquet("data/02_intermediate/hourly_features.parquet")
+```
+
+---
+
+### What to test: contracts, not internals
+
+The most common mistake is testing implementation details — the internal logic of a function.
+Good tests assert **contracts**: what goes in, what must come out.
+
+**Implementation test (fragile):**
+```python
+def test_merge_uses_left_join():
+    # Tests that merge_features internally calls .join(how="left") — breaks if we refactor
+    with patch("pandas.DataFrame.join") as mock_join:
+        merge_features(...)
+        mock_join.assert_called_with(..., how="left")
+```
+
+**Contract test (robust):**
+```python
+def test_merge_preserves_nyiso_length():
+    # Tests the observable contract: output has same row count as NYISO input
+    result = merge_features(nyiso, openmeteo, empty, empty, empty, ...)
+    assert len(result) == len(nyiso)
+```
+
+The contract test survives any internal refactor. It fails only when the behavior changes.
+
+**The contracts we test in this repo:**
+
+For `merge_features`:
+- Output length matches NYISO input length
+- `ft_nyiso_delta_3h` always appears
+- Delta values match `load.diff(3)` exactly
+- Works when all optional sources are empty
+- MTA values absent before lag window, present after
+
+For `run_inference`:
+- Output dict has the required top-level keys
+- Predicted classes are valid labels (not arbitrary strings)
+- Confidence is one of three valid buckets
+- Probabilities sum to 1.0 (within floating point tolerance)
+- SHAP keys match the feature columns used
+- Uses the most recent non-null row
+- Falls back correctly when recent rows are NaN
+- Unknown `feature_cols` entries don't crash
+
+---
+
+### Parameterized tests
+
+When the same test logic applies to multiple inputs, use `@pytest.mark.parametrize` instead
+of copy-pasting tests or looping inside a test:
+
+```python
+# Before: one test, a loop inside
+def test_confidence_is_valid_bucket(fake_hourly, fake_model_precip, fake_model_temp):
+    result = _run(fake_hourly, fake_model_precip, fake_model_temp)
+    for target in ("precip", "temp"):
+        assert result[target]["confidence"] in ("high", "medium", "low")
+
+# After: parametrized — each target gets its own row in pytest -v output
+@pytest.mark.parametrize("target", ["precip", "temp"])
+def test_confidence_is_valid_bucket(fake_hourly, fake_model_precip, fake_model_temp, target):
+    result = _run(fake_hourly, fake_model_precip, fake_model_temp)
+    assert result[target]["confidence"] in ("high", "medium", "low")
+```
+
+The `-v` output now shows:
+```
+test_inference.py::test_confidence_is_valid_bucket[precip] PASSED
+test_inference.py::test_confidence_is_valid_bucket[temp]   PASSED
+```
+
+Each parameter combination is a separate test. If `precip` fails and `temp` passes,
+you see exactly which one — not just "the loop failed somewhere."
+
+Multi-dimensional parametrize:
+```python
+@pytest.mark.parametrize("lag,source", [
+    (3, "mta"),
+    (2, "311"),
+    (5, "crashes"),
+])
+def test_lag_applied(lag, source):
+    ...
+```
+
+---
+
+### Markers
+
+Use `@pytest.mark` to tag tests and run subsets:
+
+```python
+@pytest.mark.slow
+def test_full_inference_pipeline():
+    ...  # takes 30+ seconds
+
+@pytest.mark.smoke
+def test_predictions_json_is_valid():
+    ...  # fast sanity check
+```
+
+Register markers in `pyproject.toml`:
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "slow: tests that take more than 5 seconds",
+    "smoke: fast sanity checks suitable for pre-commit",
+]
+```
+
+Run subsets:
+```bash
+pytest tests/ -m smoke           # only smoke tests (fast)
+pytest tests/ -m "not slow"      # everything except slow tests
+pytest tests/ -m "slow and smoke"
+```
+
+Practical use in this repo:
+- Pre-commit hook runs only `smoke` tests (< 5 seconds total)
+- CI runs all tests including `slow` (35 seconds is fine in CI)
+- `docker compose run pipeline pytest tests/ -m smoke` is your fast sanity check before a deploy
+
+---
+
+### Testing edge cases and failure modes
+
+The most valuable tests are the ones that test what happens when things go wrong:
+
+```python
+def test_skips_trailing_null_rows(fake_hourly, fake_model_precip, fake_model_temp):
+    """When recent rows are NaN, inference must fall back to the last complete row."""
+    df = fake_hourly.copy()
+    df.iloc[-5:] = float("nan")           # simulate stale data from source lag
+    result = _run(df, fake_model_precip, fake_model_temp)
+    assert result["timestamp"] == str(df.index[-6])   # -6th row, not -1st
+```
+
+This test exists because the inference node has a specific behavior contract:
+`hourly_features[feat].dropna().iloc[[-1]]` — take the most recent non-null row.
+If someone changes this to `iloc[[-1]]` (removes the dropna), this test catches it.
+
+Pattern for edge case tests in this repo:
+- Empty optional sources (`_empty()`) — all optional sources can be absent
+- Unknown feature columns — `feature_cols` entries not in the DataFrame are silently dropped
+- Trailing NaN rows — fall back gracefully
+- Wrong-indexed openmeteo stub — caused 3 test failures during development (documented in the pytest module in `TRAINING.md`)
+
+---
+
+### The openmeteo stub lesson
+
+During development of `test_data_engineering.py`, three tests failed not because the code
+was wrong, but because the test stub was wrong.
+
+`merge_features` first does:
+```python
+hourly = raw_nyiso.join(raw_openmeteo, how="left")
+```
+
+Passing `pd.DataFrame()` (RangeIndex, 0 rows) as the openmeteo stub caused `join` to
+produce 0 rows — because joining a DatetimeIndex DataFrame to a RangeIndex DataFrame
+on mismatched index types results in an empty output.
+
+Fix: match the structural contract of the real data (DatetimeIndex, matching frequency),
+even if the content is empty:
+
+```python
+def _openmeteo(n: int = 200) -> pd.DataFrame:
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    return pd.DataFrame(index=idx)   # correct index type, no columns
+```
+
+**Rule:** When writing a stub, ask: what structural properties must this stub satisfy
+for the function under test to behave normally? Index type, column names, dtypes, and
+frequency are all structural — they affect join behavior, reindex behavior, and
+column selection even before any logic runs.
+
+---
+
+### Running the test suite
+
+```bash
+# All tests, verbose
+.venv/bin/pytest tests/ -v
+
+# One file
+.venv/bin/pytest tests/test_inference.py -v
+
+# One test by keyword
+.venv/bin/pytest tests/ -k "lag" -v
+
+# Stop on first failure (fast feedback during development)
+.venv/bin/pytest tests/ -x
+
+# Show local variables on failure (useful for debugging)
+.venv/bin/pytest tests/ -l
+
+# Run only fast tests
+.venv/bin/pytest tests/ -m smoke
+
+# Show slowest 5 tests
+.venv/bin/pytest tests/ --durations=5
+```
+
+Expected baseline: 15 tests, ~35 seconds (SHAP computation dominates — hence the `slow` marker case for SHAP-heavy tests).
+
+---
+
+### Git practice for this module
+
+Tests and the code they test belong in the **same PR**. Never merge a new node without
+a test for it, and never merge a test for dead code.
+
+```bash
+git checkout -b feature/pipeline-tests
+# Write tests alongside the code they test
+pytest tests/ -v   # all green before pushing
+git add tests/ pyproject.toml
+git commit -m "Add pytest suite for data_engineering and inference"
+git push -u origin feature/pipeline-tests
+```
+
+**Rebase before merging.** If `main` has moved since you branched:
+```bash
+git fetch origin
+git rebase origin/main
+# Resolve any conflicts, then:
+git add <resolved>
+git rebase --continue
+```
+
+**Conflict scenario:** Two branches both add fixtures to `conftest.py` — one adds
+`fake_model_precip`, another adds `fake_hourly_small`. Git resolves the file without
+conflict. But if both fixtures have the same name (e.g. both add `fake_hourly`),
+pytest will complain at collection time. Rule: fixture names are global within a
+`conftest.py` scope — treat them like public API names and coordinate with branches.
+
+---
+
+### Docker connection
+
+Tests should run inside the same environment as production. Two patterns:
+
+**Run-time test (during development):**
+```bash
+docker compose run --rm pipeline pytest tests/ -v
+```
+
+**Build-time test (baked into CI-like Docker build):**
+```dockerfile
+# In Dockerfile, after pip install:
+COPY tests/ tests/
+RUN pytest tests/ -v --tb=short
+```
+
+This makes `docker compose build` fail if any test fails — you catch environment
+regressions (missing system library, wrong package version) before the image ships.
+
+For a leaner production image, use multi-stage:
+```dockerfile
+FROM base AS test
+COPY tests/ tests/
+RUN pytest tests/ -v
+
+FROM base AS production
+# tests/ never copied — lean final image
+```
+
+---
+
+### Problem set
+
+**P1 — 311 lag test.** The 311 source has a 2-day lag (`lag_311: 2`). Write
+`test_311_lag_shifts_data` in `test_data_engineering.py` following the same pattern as
+`test_mta_lag_shifts_data`. Build a minimal 311 fixture with `ft_311_heat` only.
+Assert values are absent in the first `2 * 24` hours and present after.
+
+**P2 — QC node tests.** The `feature/inference-qc` branch added `run_qc` in
+`src/weather/pipelines/inference/nodes.py`. Write `tests/test_qc.py` covering:
+- A prediction with `timestamp = now` returns `qc.overall == "pass"`
+- A prediction with timestamp 24h ago returns `qc.overall == "warn"`
+- A prediction with timestamp 72h ago returns `qc.overall == "fail"`
+- A prediction missing one feature from its `features` dict reports it in `missing`
+- A prediction missing 3 of 10 features returns `qc.overall == "fail"` (coverage < 80%)
+
+**P3 — Parametrize.** In `test_inference.py`, rewrite `test_confidence_is_valid_bucket`
+and `test_probabilities_sum_to_one` using `@pytest.mark.parametrize("target", ["precip", "temp"])`.
+Compare the `-v` output before and after — each target should now appear as a separate test row.
+
+**P4 — Markers.** Tag every test that constructs a model (calls `_tiny_xgb`) with
+`@pytest.mark.slow`. Tag the rest with `@pytest.mark.smoke`. Register both markers in
+`pyproject.toml`. Verify:
+```bash
+pytest tests/ -m smoke --durations=5   # should finish in < 5 seconds
+pytest tests/ -m slow                  # should include all SHAP-heavy tests
+```
+
+**P5 — Pre-commit hook.** Install `pre-commit`. Create `.pre-commit-config.yaml`:
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-smoke
+        name: pytest smoke tests
+        entry: .venv/bin/pytest tests/ -m smoke -q
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+```
+Run `pre-commit install`. Break a smoke test, attempt a commit, observe the block, fix it.
+The hook runs only smoke tests — fast enough to not slow down commits.
+
+**P6 — Coverage.** Install `pytest-cov`. Run:
+```bash
+pytest tests/ --cov=src/weather --cov-report=term-missing
+```
+Identify the two functions with the lowest coverage. Write one new test for each.
+Coverage is a guide, not a target — don't write tests just to hit 100%.
+
+---
+
 ## Capstone — The Full MLOps Loop
 
 By this point you have:
