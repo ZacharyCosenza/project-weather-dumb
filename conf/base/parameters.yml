@@ -12,6 +12,7 @@ bike_ped_lag: 1
 cz_lag: 21
 evictions_lag: 2
 dot_lag: 1
+dot_start_date: "2026-04-03"  # set equal to end_date to disable fetch; set to e.g. "2024-01-01" to enable
 lag_window: 1
 train_end: "2023-12-31"
 val_end:   "2024-06-30"
@@ -34,8 +35,8 @@ feature_cols:
   - ft_ped_pedestrian
   - ft_cz_total
   - ft_evictions
-  - ft_dot_speed_avg
-  - ft_dot_speed_delta
+  # ft_dot_speed_avg    # disabled: set dot_start_date != end_date to re-enable
+  # ft_dot_speed_delta  # disabled: set dot_start_date != end_date to re-enable
 confidence_thresholds:
   high:   0.7
   medium: 0.4

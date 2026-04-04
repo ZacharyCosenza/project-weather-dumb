@@ -277,6 +277,7 @@ def fetch_raw(
     start_date: str, end_date: str,
     nyc_lat: float, nyc_lon: float,
     cold_c: float, hot_c: float,
+    dot_start_date: str,
 ) -> tuple:
     return (
         _fetch_openmeteo(start_date, end_date, nyc_lat, nyc_lon, cold_c, hot_c),
@@ -288,7 +289,7 @@ def fetch_raw(
         _fetch_bike_ped(start_date, end_date),
         _fetch_congestion_zone(start_date, end_date),
         _fetch_evictions(start_date, end_date),
-        _fetch_dot_speeds(start_date, end_date),
+        _fetch_dot_speeds(dot_start_date, end_date),
     )
 
 
@@ -314,11 +315,20 @@ def merge_features(
     lag_window: int,
 ) -> pd.DataFrame:
     def _lag_join(hourly: pd.DataFrame, daily: pd.DataFrame, lag: int, window: int) -> pd.DataFrame:
+        if not isinstance(daily.index, pd.DatetimeIndex):
+            raise TypeError(f"_lag_join expects DatetimeIndex, got {type(daily.index).__name__}")
+        daily = daily[~daily.index.duplicated(keep="first")].sort_index()
+        daily.index = daily.index.tz_localize(None) if daily.index.tz else daily.index
+        # Fill to a dense daily grid first — sparse sources (e.g. FloodNet only has flood days)
+        # cause reindex(hourly.index) to allocate across the full nanosecond range.
+        full_days = pd.date_range(daily.index.min(), hourly.index.max().normalize(), freq="D")
+        daily = daily.reindex(full_days, method="ffill").fillna(0)
         daily_h = daily.reindex(hourly.index, method="ffill")
         lagged  = daily_h.shift(lag * 24).rolling(window * 24, min_periods=1).mean()
         return hourly.join(lagged, how="left")
 
     hourly = raw_nyiso.join(raw_openmeteo, how="left")
+    hourly = hourly[~hourly.index.duplicated(keep="first")]  # remove DST duplicate hours
     hourly["ft_nyiso_delta_3h"] = hourly["ft_nyiso_load_mw"].diff(3)
 
     for raw, lag in [
