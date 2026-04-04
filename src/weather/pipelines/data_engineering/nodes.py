@@ -267,39 +267,11 @@ def _fetch_evictions(start: str, end: str) -> pd.DataFrame:
     return df.set_index("date")[["ft_evictions"]]
 
 
-def _fetch_dot_speeds(start: str, end: str) -> pd.DataFrame:
-    # speed is stored as text — avg() fails server-side; must fetch raw and aggregate in pandas.
-    # One call per day (~35k rows, fits in $limit=50000). Cached: one-time ~33 min backfill.
-    session = requests_cache.CachedSession("data/00_cache/dot_speeds", expire_after=86400)
-    parts = []
-    for day in pd.date_range(start, end, freq="D"):
-        next_day = day + pd.Timedelta(days=1)
-        try:
-            r = session.get("https://data.cityofnewyork.us/resource/i4gi-tjb9.json", params={
-                "$select": "speed",
-                "$where":  f"data_as_of >= '{day.strftime('%Y-%m-%d')}T00:00:00' AND data_as_of < '{next_day.strftime('%Y-%m-%d')}T00:00:00'",
-                "$limit":  "50000",
-            }, timeout=30)
-            r.raise_for_status()
-            df_day = pd.DataFrame(r.json())
-            if df_day.empty:
-                continue
-            df_day["speed"] = pd.to_numeric(df_day["speed"], errors="coerce")
-            parts.append({"date": day.normalize(), "ft_dot_speed_avg": df_day["speed"].mean()})
-        except Exception as e:
-            print(f"WARNING DOT {day.date()}: {e}")
-    if not parts:
-        return pd.DataFrame()
-    daily = pd.DataFrame(parts).set_index("date")
-    daily["ft_dot_speed_delta"] = daily["ft_dot_speed_avg"].diff(1)
-    return daily
-
 
 def fetch_raw(
     start_date: str, end_date: str,
     nyc_lat: float, nyc_lon: float,
     cold_c: float, hot_c: float,
-    dot_start_date: str,
 ) -> tuple:
     def _timed(name: str, fn, *args):
         log.info("fetch %-22s  starting...", name)
@@ -333,7 +305,6 @@ def fetch_raw(
         _timed("bike_ped",        _fetch_bike_ped,        start_date, end_date),
         _timed("congestion_zone", _fetch_congestion_zone, start_date, end_date),
         _timed("evictions",       _fetch_evictions,       start_date, end_date),
-        _timed("dot_speeds",      _fetch_dot_speeds,      dot_start_date, end_date),
     )
 
 
@@ -347,7 +318,6 @@ def merge_features(
     raw_bike_ped: pd.DataFrame,
     raw_cz: pd.DataFrame,
     raw_evictions: pd.DataFrame,
-    raw_dot: pd.DataFrame,
     mta_lag: int,
     lag_311: int,
     crashes_lag: int,
@@ -355,7 +325,6 @@ def merge_features(
     bike_ped_lag: int,
     cz_lag: int,
     evictions_lag: int,
-    dot_lag: int,
     lag_window: int,
 ) -> pd.DataFrame:
     def _lag_join(hourly: pd.DataFrame, daily: pd.DataFrame, lag: int, window: int) -> pd.DataFrame:
@@ -381,7 +350,6 @@ def merge_features(
         (raw_bike_ped, bike_ped_lag),
         (raw_cz,       cz_lag),
         (raw_evictions, evictions_lag),
-        (raw_dot,      dot_lag),
     ]:
         if not raw.empty:
             hourly = _lag_join(hourly, raw, lag, lag_window)

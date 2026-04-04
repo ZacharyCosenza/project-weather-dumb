@@ -43,11 +43,6 @@ raw_evictions:
   filepath: data/01_raw/evictions.parquet
   save_args: {engine: pyarrow, index: true}
 
-raw_dot:
-  type: pandas.ParquetDataset
-  filepath: data/01_raw/dot_speeds.parquet
-  save_args: {engine: pyarrow, index: true}
-
 
 hourly_features:
   type: pandas.ParquetDataset

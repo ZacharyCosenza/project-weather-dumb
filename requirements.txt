@@ -68,6 +68,8 @@ importlib-metadata==8.9.0
     # via kedro
 importlib-resources==6.5.2
     # via kedro
+iniconfig==2.3.0
+    # via pytest
 jinja2==3.1.6
     # via
     #   altair
@@ -133,6 +135,7 @@ packaging==26.0
     #   build
     #   lazy-loader
     #   matplotlib
+    #   pytest
     #   pytoolconfig
     #   shap
     #   streamlit
@@ -152,7 +155,9 @@ platformdirs==4.9.4
     #   pytoolconfig
     #   requests-cache
 pluggy==1.6.0
-    # via kedro
+    # via
+    #   kedro
+    #   pytest
 pre-commit-hooks==6.0.0
     # via kedro
 protobuf==7.34.1
@@ -164,11 +169,15 @@ pyarrow==23.0.1
 pydeck==0.9.1
     # via streamlit
 pygments==2.20.0
-    # via rich
+    # via
+    #   pytest
+    #   rich
 pyparsing==3.3.2
     # via matplotlib
 pyproject-hooks==1.2.0
     # via build
+pytest==9.0.2
+    # via weather (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
     #   arrow
@@ -210,6 +219,8 @@ rpds-py==0.30.0
     #   referencing
 ruamel-yaml==0.19.1
     # via pre-commit-hooks
+ruff==0.15.9
+    # via weather (pyproject.toml)
 scikit-learn==1.8.0
     # via
     #   shap

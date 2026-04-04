@@ -43,8 +43,6 @@ _FEATURE_LABELS = {
     "ft_ped_pedestrian":      "DOT Pedestrian Count, Citywide Sensors (1-day lag)",
     "ft_cz_total":            "Congestion Zone Entries, Total (21-day lag)",
     "ft_evictions":           "NYC Evictions Executed (2-day lag)",
-    "ft_dot_speed_avg":       "DOT Traffic Speed Average, mph (1-day lag)",
-    "ft_dot_speed_delta":     "DOT Traffic Speed Day-over-Day Change, mph (1-day lag)",
 }
 
 _CONFIDENCE_LABELS = {"high": "High Confidence", "medium": "Medium Confidence", "low": "Low Confidence"}

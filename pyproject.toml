@@ -20,6 +20,7 @@ dependencies = [
     "numpy>=1.26",
     "streamlit>=1.35",
     "pytest>=8.0",
+    "ruff>=0.15.9",
 ]
 
 [tool.kedro]
@@ -34,3 +35,9 @@ namespaces = false
 
 [tool.kedro_telemetry]
 project_id = "8c53db12570b41ffa9d0069fb3d88f59"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # pycodestyle, pyflakes, isort

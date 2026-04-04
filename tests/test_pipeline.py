@@ -49,13 +49,12 @@ def test_data_engineering():
         start_date=start, end_date=end,
         nyc_lat=_NYC_LAT, nyc_lon=_NYC_LON,
         cold_c=_COLD_C, hot_c=_HOT_C,
-        dot_start_date=end,          # set equal to end to skip DOT fetch
     )
     hourly = merge_features(
         *raws,
         mta_lag=3, lag_311=2, crashes_lag=5,
         floodnet_lag=2, bike_ped_lag=1, cz_lag=21,
-        evictions_lag=2, dot_lag=1, lag_window=1,
+        evictions_lag=2, lag_window=1,
     )
 
     assert len(hourly) > 0,                       "merge_features returned empty DataFrame"
