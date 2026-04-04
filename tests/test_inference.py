@@ -60,12 +60,12 @@ def test_uses_most_recent_non_null_row(fake_hourly, fake_model_precip, fake_mode
     assert result["timestamp"] == str(fake_hourly.index[-1])
 
 
-def test_skips_trailing_null_rows(fake_hourly, fake_model_precip, fake_model_temp):
-    """When recent rows have NaN, inference should fall back to the last complete row."""
+def test_uses_last_row_regardless_of_nans(fake_hourly, fake_model_precip, fake_model_temp):
+    """Inference always uses the most recent row, even if it contains NaN features."""
     df = fake_hourly.copy()
     df.iloc[-5:] = float("nan")
     result = _run(df, fake_model_precip, fake_model_temp)
-    assert result["timestamp"] == str(df.index[-6])
+    assert result["timestamp"] == str(df.index[-1])
 
 
 # ── Feature filtering ───────────────────────────────────────────────────────────

@@ -117,7 +117,7 @@ st.divider()
 
 st.subheader("Current Feature Values")
 feature_table = pd.DataFrame([
-    {"Feature": _FEATURE_LABELS.get(k, k), "Value": f"{v:,.2f}"}
+    {"Feature": _FEATURE_LABELS.get(k, k), "Value": "—" if v is None else f"{v:,.2f}"}
     for k, v in preds["features"].items()
 ])
 st.dataframe(feature_table, hide_index=True, use_container_width=False)

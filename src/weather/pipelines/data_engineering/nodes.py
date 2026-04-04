@@ -322,7 +322,7 @@ def merge_features(
         # Fill to a dense daily grid first — sparse sources (e.g. FloodNet only has flood days)
         # cause reindex(hourly.index) to allocate across the full nanosecond range.
         full_days = pd.date_range(daily.index.min(), hourly.index.max().normalize(), freq="D")
-        daily = daily.reindex(full_days, method="ffill").fillna(0)
+        daily = daily.reindex(full_days, method="ffill")
         daily_h = daily.reindex(hourly.index, method="ffill")
         lagged  = daily_h.shift(lag * 24).rolling(window * 24, min_periods=1).mean()
         return hourly.join(lagged, how="left")

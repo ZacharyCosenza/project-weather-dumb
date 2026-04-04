@@ -50,12 +50,12 @@ def run_inference(
     confidence_thresholds: dict,
 ) -> dict:
     feat    = [c for c in feature_cols if c in hourly_features.columns]
-    latest  = hourly_features[feat].dropna().iloc[[-1]]
+    latest  = hourly_features[feat].iloc[[-1]]
     ts      = str(latest.index[0])
 
     return {
         "timestamp": ts,
-        "features":  {col: round(float(latest[col].iloc[0]), 2) for col in feat},
+        "features":  {col: (None if pd.isna(v := latest[col].iloc[0]) else round(float(v), 2)) for col in feat},
         "precip":    _predict_target(model_precip, latest, _PRECIP_ORDER, confidence_thresholds),
         "temp":      _predict_target(model_temp,   latest, _TEMP_ORDER,   confidence_thresholds),
     }
