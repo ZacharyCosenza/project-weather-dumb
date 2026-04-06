@@ -191,13 +191,14 @@ bash run_pipeline.sh         # full: data_engineering + retrain + inference
 To run automatically, add to cron (`crontab -e`):
 
 ```
-# Hourly fast refresh (data + inference)
-5 * * * * docker exec weather-pipeline /app/run_inference_only.sh >> /home/zaccosenza/code/project-weather-dumb/logs/cron.log 2>&1
 
-# Nightly full retrain at 02:00
-0 2 * * * docker exec weather-pipeline /app/run_pipeline.sh >> /home/zaccosenza/code/project-weather-dumb/logs/cron.log 2>&1
-```
+# Hourly: fast inference (at :05 past the hour — gives NYISO time to publish)
+*/30  * * * * docker exec weather-pipeline /app/run_inference_only.sh >> /home/zaccosenza/code/project-weather-dumb>
 
-For Docker-based production setup, see [PRODUCTION.md](PRODUCTION.md).
+# Nightly: full retrain at 02:00
+0 2 * * * docker exec weather-pipeline /app/run_pipeline.sh >> /home/zaccosenza/code/project-weather-dumb/logs/cron>
+
+# Rotate cron log weekly, keep 4 weeks
+0 0 * * 0 mv ~/code/project-weather-dumb/logs/cron.log ~/code/project-weather-dumb/logs/cron.log.$(date +\%Y\%W) &&>
 
 ---
