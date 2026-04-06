@@ -75,12 +75,15 @@ def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
     return df
 
 
-_nyiso_session = requests_cache.CachedSession("data/00_cache/nyiso", expire_after=86400)
+_nyiso_session      = requests_cache.CachedSession("data/00_cache/nyiso",      expire_after=86400)
+_nyiso_session_live = requests_cache.CachedSession("data/00_cache/nyiso_live", expire_after=300)
 
 
 def _fetch_nyiso_month(year: int, month: int) -> pd.Series:
     url = f"https://mis.nyiso.com/public/csv/pal/{year}{month:02d}01pal_csv.zip"
-    r = _nyiso_session.get(url, timeout=30)
+    now = pd.Timestamp.now()
+    session = _nyiso_session_live if (year == now.year and month == now.month) else _nyiso_session
+    r = session.get(url, timeout=30)
     r.raise_for_status()
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         frames = [pd.read_csv(z.open(name)) for name in z.namelist()]
@@ -125,8 +128,10 @@ def _fetch_mta(start: str, end: str) -> pd.DataFrame:
 
 
 def _fetch_311(start: str, end: str) -> pd.DataFrame:
+    # "Street Flooding" and "Flooded Basement" do not exist in 311 — verified empty.
+    # "Snow or Ice" is the correct modern type; "Snow" covers older records pre-rename.
     session = requests_cache.CachedSession("data/00_cache/311", expire_after=86400)
-    types = ["HEAT/HOT WATER", "Street Flooding", "Flooded Basement", "Snow"]
+    types = ["HEAT/HOT WATER", "Snow or Ice", "Snow"]
     type_list = ", ".join(f"'{t}'" for t in types)
     r = session.get("https://data.cityofnewyork.us/resource/erm2-nwe9.json", params={
         "$select": "date_trunc_ymd(created_date) as date, complaint_type, count(*) as cnt",
@@ -147,17 +152,13 @@ def _fetch_311(start: str, end: str) -> pd.DataFrame:
     pivot = (
         raw.pivot_table(index="date", columns="complaint_type",
                         values="cnt", aggfunc="sum", fill_value=0)
-           .rename(columns={
-               "HEAT/HOT WATER":   "ft_311_heat",
-               "Street Flooding":  "ft_311_flood_street",
-               "Flooded Basement": "ft_311_flood_basement",
-               "Snow":             "ft_311_snow",
-           })
+           .rename(columns={"HEAT/HOT WATER": "ft_311_heat"})
     )
-    flood_cols = [c for c in pivot.columns if c.startswith("ft_311_flood_")]
-    if flood_cols:
-        pivot["ft_311_flood"] = pivot[flood_cols].sum(axis=1)
-        pivot = pivot.drop(columns=flood_cols)
+    # Merge both snow type names into one column
+    snow_cols = [c for c in pivot.columns if "Snow" in c or "snow" in c.lower()]
+    if snow_cols:
+        pivot["ft_311_snow"] = pivot[snow_cols].sum(axis=1)
+        pivot = pivot.drop(columns=snow_cols)
     pivot.index.name = "date"
     return pivot
 
@@ -267,6 +268,101 @@ def _fetch_evictions(start: str, end: str) -> pd.DataFrame:
     return df.set_index("date")[["ft_evictions"]]
 
 
+def _fetch_restaurant(start: str, end: str) -> pd.DataFrame:
+    session = requests_cache.CachedSession("data/00_cache/restaurant", expire_after=86400)
+    r = session.get("https://data.cityofnewyork.us/resource/43nn-pn8j.json", params={
+        "$select": "date_trunc_ymd(inspection_date) as date, count(*) as ft_restaurant_inspections, sum(case(critical_flag='Critical',1,true,0)) as ft_restaurant_critical",
+        "$group":  "date_trunc_ymd(inspection_date)",
+        "$where":  f"inspection_date >= '{start}T00:00:00' AND inspection_date <= '{end}T23:59:59'",
+        "$order":  "date ASC",
+        "$limit":  "5000",
+    }, timeout=60)
+    r.raise_for_status()
+    df = pd.DataFrame(r.json())
+    if df.empty:
+        return pd.DataFrame()
+    df["date"]                      = pd.to_datetime(df["date"]).dt.normalize()
+    df["ft_restaurant_inspections"] = pd.to_numeric(df["ft_restaurant_inspections"], errors="coerce").fillna(0).astype(int)
+    df["ft_restaurant_critical"]    = pd.to_numeric(df["ft_restaurant_critical"],    errors="coerce").fillna(0).astype(int)
+    return df.set_index("date")[["ft_restaurant_inspections", "ft_restaurant_critical"]]
+
+
+def _fetch_hpd(start: str, end: str) -> pd.DataFrame:
+    session = requests_cache.CachedSession("data/00_cache/hpd", expire_after=86400)
+    r = session.get("https://data.cityofnewyork.us/resource/wvxf-dwi5.json", params={
+        "$select": "date_trunc_ymd(inspectiondate) as date, class, count(*) as cnt",
+        "$group":  "date_trunc_ymd(inspectiondate), class",
+        "$where":  f"inspectiondate >= '{start}T00:00:00' AND inspectiondate <= '{end}T23:59:59' AND class in ('A','B','C')",
+        "$order":  "date ASC",
+        "$limit":  "50000",
+    }, timeout=120)
+    r.raise_for_status()
+    df = pd.DataFrame(r.json())
+    if df.empty:
+        return pd.DataFrame()
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["cnt"]  = pd.to_numeric(df["cnt"], errors="coerce").fillna(0).astype(int)
+    pivot = (
+        df.pivot_table(index="date", columns="class", values="cnt", aggfunc="sum", fill_value=0)
+          .rename(columns={"A": "ft_hpd_class_a", "B": "ft_hpd_class_b", "C": "ft_hpd_class_c"})
+    )
+    pivot.index.name = "date"
+    return pivot
+
+
+def _fetch_mlb(start: str, end: str) -> pd.DataFrame:
+    """Cumulative season win percentage for Mets (121) and Yankees (147).
+
+    Returns a daily DataFrame with ft_mets_win_pct and ft_yankees_win_pct.
+    Values are NaN during the off-season (before first game / after last game
+    of each calendar year). Forward-fill is applied within each season year
+    only, so the off-season gap between seasons stays NaN.
+    """
+    # MLB schedule API silently caps at one season per request — fetch per year.
+    session = requests_cache.CachedSession("data/00_cache/mlb", expire_after=86400)
+    teams = {121: "ft_mets_win_pct", 147: "ft_yankees_win_pct"}
+    rows = []
+    years = range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1)
+    for team_id, col in teams.items():
+        for year in years:
+            r = session.get("https://statsapi.mlb.com/api/v1/schedule", params={
+                "sportId":   1,
+                "teamId":    team_id,
+                "startDate": f"{year}-01-01",
+                "endDate":   f"{year}-12-31",
+                "gameType":  "R",
+            }, timeout=30)
+            r.raise_for_status()
+            for d in r.json().get("dates", []):
+                for g in d["games"]:
+                    if g.get("status", {}).get("detailedState") != "Final":
+                        continue
+                    team_data = (
+                        g["teams"]["home"] if g["teams"]["home"]["team"]["id"] == team_id
+                        else g["teams"]["away"]
+                    )
+                    pct = float(team_data["leagueRecord"]["pct"])
+                    rows.append({"date": pd.Timestamp(d["date"]), "col": col, "pct": pct})
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    # keep last game result per (date, team) — handles doubleheaders
+    df = df.sort_values("date").drop_duplicates(subset=["date", "col"], keep="last")
+    pivot = df.pivot(index="date", columns="col", values="pct")
+    pivot.index.name = "date"
+
+    # Reindex to the full requested date range, then forward-fill with a short
+    # limit. Games occur every 1-3 days; limit=5 covers rain delays / off-days
+    # without bleeding into the multi-month off-season.
+    full_days = pd.date_range(start, end, freq="D")
+    pivot = pivot.reindex(full_days).ffill(limit=5)
+    pivot.index.name = "date"
+
+    return pivot
+
+
 
 def fetch_raw(
     start_date: str, end_date: str,
@@ -305,6 +401,9 @@ def fetch_raw(
         _timed("bike_ped",        _fetch_bike_ped,        start_date, end_date),
         _timed("congestion_zone", _fetch_congestion_zone, start_date, end_date),
         _timed("evictions",       _fetch_evictions,       start_date, end_date),
+        _timed("restaurant",      _fetch_restaurant,      start_date, end_date),
+        _timed("hpd",             _fetch_hpd,             start_date, end_date),
+        _timed("mlb",             _fetch_mlb,             start_date, end_date),
     )
 
 
@@ -318,6 +417,9 @@ def merge_features(
     raw_bike_ped: pd.DataFrame,
     raw_cz: pd.DataFrame,
     raw_evictions: pd.DataFrame,
+    raw_restaurant: pd.DataFrame,
+    raw_hpd: pd.DataFrame,
+    raw_mlb: pd.DataFrame,
     mta_lag: int,
     lag_311: int,
     crashes_lag: int,
@@ -325,6 +427,8 @@ def merge_features(
     bike_ped_lag: int,
     cz_lag: int,
     evictions_lag: int,
+    restaurant_lag: int,
+    hpd_lag: int,
     lag_window: int,
 ) -> pd.DataFrame:
     def _lag_join(hourly: pd.DataFrame, daily: pd.DataFrame, lag: int, window: int) -> pd.DataFrame:
@@ -349,9 +453,17 @@ def merge_features(
         (raw_floodnet, floodnet_lag),
         (raw_bike_ped, bike_ped_lag),
         (raw_cz,       cz_lag),
-        (raw_evictions, evictions_lag),
+        (raw_evictions,  evictions_lag),
+        (raw_restaurant, restaurant_lag),
+        (raw_hpd,        hpd_lag),
     ]:
         if not raw.empty:
             hourly = _lag_join(hourly, raw, lag, lag_window)
+
+    # MLB win pct: no publication lag — ffill within-season is already applied;
+    # off-season rows stay NaN. Just reindex to hourly.
+    if not raw_mlb.empty:
+        mlb_h = raw_mlb.reindex(hourly.index, method="ffill")
+        hourly = hourly.join(mlb_h, how="left")
 
     return hourly

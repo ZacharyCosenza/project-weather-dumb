@@ -28,32 +28,92 @@ NYC 311 complaints   │
 Motor vehicle crashes┘
 ```
 
-The key constraint is that no direct weather data is used as a model input. Instead, four proxy sources are used — things that *respond to weather* rather than measuring it. The model learns to invert that relationship.
+The key constraint is that no direct weather data is used as a model input. Instead, proxy sources are used — things that *respond to weather* rather than measuring it. The model learns to invert that relationship.
 
 **Publication lag:** Each source has a known delay between when an event happens and when the data is published. The lag shift `feature[t] = value[t - lag_days]` ensures the model only ever sees data that would have been available at the time of prediction.
-
-| Source | Publication lag | Lag parameter |
-|---|---|---|
-| NYISO grid load | ~0.2h | none |
-| MTA ridership | ~66h | 3 days |
-| NYC 311 complaints | ~39h | 2 days |
-| Motor vehicle crashes | ~114h | 5 days |
-
-Daily sources (MTA, 311, crashes) are reindexed to hourly by holding each day's published value constant across all 24 hours of that day, then the lag shift is applied on the hourly index.
 
 ---
 
 ## Features
 
+<table>
+<tr>
+<td width="220" align="center">
+<video src="gifs/marv.mp4" width="200" autoplay loop muted></video>
+</td>
+<td valign="top">
+
+### NYISO Zone J Grid Load &nbsp;`ft_nyiso_load_mw`
+
+Real-time electricity consumption for the NYC grid zone, updated every ~12 minutes. High load in summer (AC) and winter (heating) correlates directly with temperature extremes. Also derives `ft_nyiso_delta_3h` — the 3-hour first difference — to capture intra-day momentum.
+
+**Publication lag:** ~0.2h · **Lag applied:** none
+
+</td>
+</tr>
+<tr>
+<td width="220" align="center">
+<video src="gifs/I_like_trains.mp4" width="200" autoplay loop muted></video>
+</td>
+<td valign="top">
+
+### MTA Subway Ridership &nbsp;`ft_mta_subway`
+
+Daily subway entries across the entire NYC system. Rain suppresses ridership; extreme cold and heat push riders toward covered transit. One of the strongest discriminators for precipitation class.
+
+**Publication lag:** ~66h · **Lag applied:** 3 days
+
+</td>
+</tr>
+<tr>
+<td width="220" align="center">
+<video src="gifs/c4mkd087lwlg1.mp4" width="200" autoplay loop muted></video>
+</td>
+<td valign="top">
+
+### MTA Bus Ridership &nbsp;`ft_mta_bus`
+
+Daily bus boardings citywide. Bus ridership is more weather-sensitive than subway: rain and cold both increase ridership as pedestrians seek shelter, while extreme heat suppresses outdoor waiting.
+
+**Publication lag:** ~66h · **Lag applied:** 3 days
+
+</td>
+</tr>
+<tr>
+<td width="220" align="center">
+<video src="gifs/Amtrak_Snow_mo_Collision.mp4" width="200" autoplay loop muted></video>
+</td>
+<td valign="top">
+
+### LIRR Ridership &nbsp;`ft_mta_lirr`
+
+Daily Long Island Rail Road boardings. Snow events in particular devastate LIRR operations — cancellations, delays, and suppressed demand all show up here. The most weather-responsive of the three transit modes.
+
+**Publication lag:** ~66h · **Lag applied:** 3 days
+
+</td>
+</tr>
+</table>
+
+### Additional features (no gif, but they matter)
+
+| Feature | Source | Lag |
+|---|---|---|
+| `ft_311_heat`, `ft_311_snow` | NYC 311 complaint volume by type | 2 days |
+| `ft_crashes_total`, `ft_crashes_slippery` | NYPD motor vehicle crash reports | 5 days |
+| `ft_floodnet_events`, `ft_floodnet_max_depth_in` | FloodNet street sensor events | 2 days |
+| `ft_ped_bike`, `ft_ped_pedestrian` | DOT citywide sensor counts | 1 day |
+| `ft_cz_total` | MTA Congestion Zone entries (from Jan 2025) | 21 days |
+| `ft_evictions` | NYC marshal-executed evictions | 2 days |
+| `ft_restaurant_inspections`, `ft_restaurant_critical` | DOHMH inspection volume | 3 days |
+| `ft_hpd_class_a/b/c` | HPD housing code violations by severity | 3 days |
+| `ft_mets_win_pct`, `ft_yankees_win_pct` | MLB season win % (off-season = NaN) | none |
+
+Daily sources are reindexed to hourly by holding each day's value constant across all 24 hours, then the lag shift is applied on the hourly index.
+
 ![Features over time](data/03_primary/plot_features_time.png)
 
-The time series above shows each feature across the full training range. Seasonality in NYISO load (AC in summer, heating in winter) and weekly cycles in MTA ridership are the dominant visible patterns — exactly the kind of structure that correlates with weather.
-
-The distributions below show how each proxy behaves across precipitation classes. A feature with well-separated box plots is a strong discriminator.
-
 ![Feature distributions by precipitation class](data/03_primary/plot_distributions.png)
-
-The heatmap below quantifies these relationships as Pearson correlations.
 
 ![Feature × target correlations](data/03_primary/plot_correlations.png)
 

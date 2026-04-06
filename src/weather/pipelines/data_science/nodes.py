@@ -38,7 +38,8 @@ def _compute_metrics(model: XGBClassifier, X: pd.DataFrame, y: pd.Series) -> dic
         "accuracy":  round(float(accuracy_score(y, yp)), 4),
         "precision": round(float(precision_score(y, yp, average="weighted", zero_division=0)), 4),
         "recall":    round(float(recall_score(y, yp, average="weighted", zero_division=0)), 4),
-        "auc_roc":   round(float(roc_auc_score(y, yb, multi_class="ovr", average="macro")), 4),
+        "auc_roc":   round(float(roc_auc_score(y, yb, multi_class="ovr", average="macro",
+                                               labels=list(range(yb.shape[1])))), 4),
     }
 
 
@@ -150,7 +151,8 @@ def _shap_beeswarm(model: XGBClassifier, X: pd.DataFrame, label: str, class_orde
 
 
 def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Figure, Figure, Figure, Figure]:
-    proxy_cols = [c for c in feature_cols if c in hourly_features.columns]
+    proxy_cols = feature_cols
+    hourly_features = hourly_features.reindex(columns=proxy_cols + ["tgt_precip", "tgt_precip_int", "tgt_temp", "tgt_temp_int"])
 
     # ── Feature distributions by precip class ─────────────────────────────────
     n_cols = min(3, len(proxy_cols))
@@ -181,9 +183,14 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
     plt.close(fig_dist)
 
     # ── Correlations ──────────────────────────────────────────────────────────
+    # Pairwise: each feature-target pair drops NaN independently so sparse
+    # features (MLB off-season, CZ pre-2025) don't eliminate all rows.
     targets = ["tgt_precip_int", "tgt_temp_int"]
-    corr_df = hourly_features[proxy_cols + targets].dropna()
-    corr    = pd.DataFrame({t: corr_df[proxy_cols].corrwith(corr_df[t]) for t in targets})
+    full    = hourly_features[proxy_cols + targets]
+    corr    = pd.DataFrame(
+        {t: {col: full[[col, t]].dropna().corr().loc[col, t] for col in proxy_cols}
+         for t in targets}
+    )
 
     fig_corr, ax = plt.subplots(figsize=(5, len(proxy_cols) * 0.8 + 1))
     im = ax.imshow(corr.values, cmap=_DIV_CMAP, vmin=-1, vmax=1, aspect="auto")
@@ -238,7 +245,9 @@ def plot_eda(hourly_features: pd.DataFrame, feature_cols: list[str]) -> tuple[Fi
         s = hourly_features[col].dropna()
         ax.plot(s.index, s.values, linewidth=0.4, alpha=0.7, color=_NAVY)
         ax.set_title(col.replace("_", " "), fontsize=10)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
+        val_range = s.max() - s.min() if len(s) > 1 else 1
+        fmt = ".3f" if val_range < 2 else ",.0f"
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _, fmt=fmt: f"{v:{fmt}}"))
         ax.grid(alpha=0.2)
 
     for ax in axes_t[len(proxy_cols):]:
@@ -261,8 +270,8 @@ def train_and_evaluate(
     random_test_frac: float,
     train_subsample_frac: float = 1.0,
 ) -> tuple[XGBClassifier, XGBClassifier, Figure, Figure, Figure]:
-    feat = [c for c in feature_cols if c in hourly_features.columns]
-    df   = hourly_features[feat + ["tgt_precip_int", "tgt_temp_int"]].dropna(subset=["tgt_precip_int", "tgt_temp_int"])
+    feat = feature_cols
+    df   = hourly_features.reindex(columns=feat + ["tgt_precip_int", "tgt_temp_int"]).dropna(subset=["tgt_precip_int", "tgt_temp_int"])
 
     train_end_ts = pd.Timestamp(train_end)
     val_end_ts   = pd.Timestamp(val_end)

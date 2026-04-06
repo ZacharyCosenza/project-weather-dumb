@@ -1,52 +1,77 @@
+import base64
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use("Agg")
-import numpy as np
-import pandas as pd
 import streamlit as st
 
 _PREDICTIONS_PATH = Path(__file__).parents[1] / "data/03_primary/predictions.json"
+_GIF_DIR          = Path(__file__).parents[1] / "gifs"
 
 _NAVY, _ORANGE = "#1B3A6B", "#E87722"
 _GREY_DARK, _GREY_MID, _GREY_LIGHT = "#6B6B6B", "#9E9E9E", "#D4D4D4"
 
-_PRECIP_COLORS = {
-    "clear": "#F4A460", "cloudy": _GREY_MID, "rainy": _NAVY, "snowy": _GREY_LIGHT,
-}
-_TEMP_COLORS = {
-    "cold": _NAVY, "temperate": _GREY_DARK, "hot": _ORANGE,
-}
 _EMOJIS = {
     "clear": "☀️", "cloudy": "☁️", "rainy": "🌧️", "snowy": "❄️",
     "cold": "🥶", "temperate": "😊", "hot": "🥵",
 }
 _CONFIDENCE_COLORS = {"high": "#2E7D32", "medium": "#F9A825", "low": "#C62828"}
-
-# Feature labels for matplotlib charts (no emoji — matplotlib can't render them)
-_FEATURE_LABELS = {
-    "ft_nyiso_load_mw":    "NYISO Zone J Grid Load (MW)",
-    "ft_nyiso_delta_3h":   "NYISO Zone J Load Change, 3-hour (MW)",
-    "ft_mta_subway":       "NYC Subway Ridership (3-day lag)",
-    "ft_mta_bus":          "NYC Bus Ridership (3-day lag)",
-    "ft_mta_lirr":         "LIRR Ridership (3-day lag)",
-    "ft_311_heat":         "311 Heat/Hot Water Complaints (2-day lag)",
-    "ft_311_flood":        "311 Flood Complaints (2-day lag)",
-    "ft_311_snow":         "311 Snow Complaints (2-day lag)",
-    "ft_crashes_total":       "Motor Vehicle Crashes, Total (5-day lag)",
-    "ft_crashes_slippery":    "Motor Vehicle Crashes, Slippery Pavement (5-day lag)",
-    "ft_floodnet_events":     "Street Flood Events, Count (2-day lag)",
-    "ft_floodnet_max_depth_in": "Street Flood Max Depth, inches (2-day lag)",
-    "ft_ped_bike":            "DOT Bike Count, Citywide Sensors (1-day lag)",
-    "ft_ped_pedestrian":      "DOT Pedestrian Count, Citywide Sensors (1-day lag)",
-    "ft_cz_total":            "Congestion Zone Entries, Total (21-day lag)",
-    "ft_evictions":           "NYC Evictions Executed (2-day lag)",
-}
-
 _CONFIDENCE_LABELS = {"high": "High Confidence", "medium": "Medium Confidence", "low": "Low Confidence"}
 
+# Natural-language labels designed to complete the sentence:
+#   "{value} {label} contributing to {pct}% of weather"
+_FEATURE_LABELS = {
+    "ft_nyiso_load_mw":           "MW of grid load",
+    "ft_nyiso_delta_3h":          "MW grid load swing (3h)",
+    "ft_mta_subway":              "recent subway riders",
+    "ft_mta_bus":                 "recent bus riders",
+    "ft_mta_lirr":                "recent LIRR riders",
+    "ft_311_heat":                "heat complaints filed",
+    "ft_311_snow":                "snow complaints filed",
+    "ft_crashes_total":           "recent vehicle crashes",
+    "ft_crashes_slippery":        "slippery road crashes",
+    "ft_floodnet_events":         "street flood events",
+    "ft_floodnet_max_depth_in":   "inches of street flooding",
+    "ft_ped_bike":                "recent bike trips",
+    "ft_ped_pedestrian":          "pedestrians counted",
+    "ft_cz_total":                "congestion zone entries",
+    "ft_evictions":               "evictions executed",
+    "ft_mets_win_pct":            "Mets win rate",
+    "ft_yankees_win_pct":         "Yankees win rate",
+    "ft_restaurant_inspections":  "restaurant inspections",
+    "ft_restaurant_critical":     "critical violations found",
+    "ft_hpd_class_a":             "Class A housing violations",
+    "ft_hpd_class_b":             "Class B housing violations",
+    "ft_hpd_class_c":             "Class C housing violations",
+}
+
+# Feature → video file in /gifs. Features not listed here are excluded from the gif view.
+_GIF_MAP = {
+    "ft_mta_lirr":               "Amtrak_Snow_mo_Collision.mp4",
+    "ft_nyiso_delta_3h":         "power-lines-jump-rope.mp4",
+    "ft_mta_subway":             "I_like_trains.mp4",
+    "ft_nyiso_load_mw":          "marv.mp4",
+    "ft_mta_bus":                "c4mkd087lwlg1.mp4",
+    "ft_311_heat":               "frozen-freezing.mp4",
+    "ft_311_snow":               "snow-laughing.mp4",
+    "ft_crashes_total":          "crash-car.mp4",
+    "ft_crashes_slippery":       "slippery-dog.mp4",
+    "ft_floodnet_events":        "flood-simpsons.mp4",
+    "ft_floodnet_max_depth_in":  "donald-trump-water.mp4",
+    "ft_ped_bike":               "dog-cycling.mp4",
+    "ft_ped_pedestrian":         "seinfeld-walking.mp4",
+    "ft_cz_total":               "speed-trap-police.mp4",
+    "ft_evictions":              "broke.mp4",
+    "ft_restaurant_inspections": "pizza-hungry.mp4",
+    "ft_restaurant_critical":    "spongebob.mp4",
+    "ft_mets_win_pct": "let's-go-mets-major-league-baseball.mp4",
+    "ft_yankees_win_pct": "yankees-seinfeld.mp4"
+}
+
+_GIF_WIDTH_PX  = 220
+_GIF_HEIGHT_PX = 160
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def load_predictions() -> dict:
     if not _PREDICTIONS_PATH.exists():
@@ -55,55 +80,83 @@ def load_predictions() -> dict:
     return json.loads(_PREDICTIONS_PATH.read_text())
 
 
+@st.cache_data
+def _video_b64(filename: str) -> str:
+    return base64.b64encode((_GIF_DIR / filename).read_bytes()).decode()
+
+
+def _video_tag(filename: str) -> str:
+    b64 = _video_b64(filename)
+    return (
+        f'<div style="width:{_GIF_WIDTH_PX}px;height:{_GIF_HEIGHT_PX}px;'
+        f'overflow:hidden;border-radius:8px;flex-shrink:0;">'
+        f'<video width="{_GIF_WIDTH_PX}" height="{_GIF_HEIGHT_PX}" '
+        f'style="object-fit:cover;" autoplay loop muted playsinline>'
+        f'<source src="data:video/mp4;base64,{b64}" type="video/mp4">'
+        f'</video>'
+        f'</div>'
+    )
+
+
 def confidence_badge(level: str) -> None:
     color = _CONFIDENCE_COLORS[level]
     st.markdown(
         f'<span style="background:{color};color:white;padding:3px 12px;'
-        f'border-radius:12px;font-size:0.85rem;font-weight:600">{_CONFIDENCE_LABELS[level]}</span>',
+        f'border-radius:12px;font-size:0.85rem;font-weight:600">'
+        f'{_CONFIDENCE_LABELS[level]}</span>',
         unsafe_allow_html=True,
     )
 
 
-_CHART_SIZE = (3, 2.4)
-
-
-def shap_chart(prediction: str, shap_vals: dict, pred_color: str) -> plt.Figure:
-    """Stacked bar chart: one row per feature, positive SHAP stacked right of zero,
-    negative stacked left. The predicted class label anchors the chart title."""
-    items    = sorted(shap_vals.items(), key=lambda x: abs(x[1]), reverse=True)
-    labels   = [_FEATURE_LABELS.get(k, k.replace("_", " ")) for k, _ in items]
-    vals     = [v for _, v in items]
-    pos_vals = [max(v, 0) for v in vals]
-    neg_vals = [min(v, 0) for v in vals]
-
-    fig, ax = plt.subplots(figsize=_CHART_SIZE)
-    y = np.arange(len(labels))
-
-    ax.barh(y, pos_vals, color=_ORANGE, edgecolor="white", linewidth=0.4, label="pushes toward")
-    ax.barh(y, neg_vals, color=_NAVY,   edgecolor="white", linewidth=0.4, label="pushes away")
-
-    ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=9)
-    ax.set_xlabel(f"SHAP contribution toward '{prediction}'")
-    ax.legend(fontsize=8, loc="lower right")
-    ax.grid(axis="x", alpha=0.2)
-    fig.tight_layout()
-    return fig
-
-
-def render_target(result: dict, colors: dict) -> None:
+def render_prediction(result: dict, title: str) -> None:
+    """Prediction label + confidence badge only — no gifs."""
     pred = result["prediction"]
-    st.markdown(f"### {_EMOJIS.get(pred, '')} {pred.capitalize()}")
+    st.markdown(f"### {title}")
+    st.markdown(f"## {_EMOJIS.get(pred, '')} {pred.capitalize()}")
     confidence_badge(result["confidence"])
-    st.pyplot(shap_chart(pred, result["shap"], colors.get(pred, _GREY_MID)),
-              use_container_width=True)
+
+
+# ── GIF contribution column ────────────────────────────────────────────────────
+
+def render_gif_contributions(shap_vals: dict, feature_vals: dict) -> None:
+    """
+    Vertical stack of gif-mapped features sorted by |SHAP| descending.
+    Each row: video + sentence "{value} {label} contributing to {pct}% of weather"
+    """
+    total_abs = sum(abs(v) for v in shap_vals.values()) or 1.0
+
+    gif_features = sorted(
+        [(feat, shap_vals[feat]) for feat in _GIF_MAP if feat in shap_vals],
+        key=lambda x: abs(x[1]),
+        reverse=True,
+    )
+
+    if not gif_features:
+        return
+
+    blocks = []
+    for feat, shap_val in gif_features:
+        pct     = abs(shap_val) / total_abs * 100
+        label   = _FEATURE_LABELS.get(feat, feat.replace("_", " "))
+        raw     = feature_vals.get(feat)
+        val_str = "—" if raw is None else f"{raw:,.2f}"
+        video   = _video_tag(_GIF_MAP[feat])
+        sentence = f"{val_str} {label} contributing to {pct:.1f}% of weather"
+        blocks.append(
+            f'<div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:20px;">'
+            f'  <div style="flex:0 0 {_GIF_WIDTH_PX}px;">{video}</div>'
+            f'  <div style="flex:1;padding-top:20px;font-size:1rem;line-height:1.5;">'
+            f'    {sentence}'
+            f'  </div>'
+            f'</div>'
+        )
+    st.markdown("".join(blocks), unsafe_allow_html=True)
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="NYC Weather Nowcast", page_icon="🌆", layout="wide")
-st.title("🌆 NYC Weather Nowcast")
+st.title("Statistically Irresponsible Nowcast")
 
 if st.button("↻ Refresh"):
     st.rerun()
@@ -113,14 +166,12 @@ st.caption(f"Features current as of: {preds['timestamp']} · Retrain cadence: ho
 
 st.divider()
 
-st.subheader("Current Feature Values")
-feature_table = pd.DataFrame([
-    {"Feature": _FEATURE_LABELS.get(k, k), "Value": "—" if v is None else f"{v:,.2f}"}
-    for k, v in preds["features"].items()
-])
-st.dataframe(feature_table, hide_index=True, use_container_width=False)
+col_precip, col_temp = st.columns(2)
+with col_precip:
+    render_prediction(preds["precip"], "Precipitation")
+with col_temp:
+    render_prediction(preds["temp"], "Temperature")
+
 st.divider()
 
-render_target(preds["precip"], _PRECIP_COLORS)
-st.divider()
-render_target(preds["temp"], _TEMP_COLORS)
+render_gif_contributions(preds["temp"]["shap"], preds["features"])

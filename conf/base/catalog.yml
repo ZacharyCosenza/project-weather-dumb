@@ -43,6 +43,21 @@ raw_evictions:
   filepath: data/01_raw/evictions.parquet
   save_args: {engine: pyarrow, index: true}
 
+raw_restaurant:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/restaurant.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_hpd:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/hpd.parquet
+  save_args: {engine: pyarrow, index: true}
+
+raw_mlb:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/mlb.parquet
+  save_args: {engine: pyarrow, index: true}
+
 
 hourly_features:
   type: pandas.ParquetDataset

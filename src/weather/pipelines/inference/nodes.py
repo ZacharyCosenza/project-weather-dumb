@@ -49,8 +49,8 @@ def run_inference(
     feature_cols: list[str],
     confidence_thresholds: dict,
 ) -> dict:
-    feat    = [c for c in feature_cols if c in hourly_features.columns]
-    latest  = hourly_features[feat].iloc[[-1]]
+    feat    = feature_cols
+    latest  = hourly_features.reindex(columns=feat).iloc[[-1]]
     ts      = str(latest.index[0])
 
     log.info(f"Model Inference Input: {latest.T}")

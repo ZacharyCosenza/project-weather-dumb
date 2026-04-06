@@ -11,6 +11,8 @@ floodnet_lag: 2
 bike_ped_lag: 1
 cz_lag: 21
 evictions_lag: 2
+restaurant_lag: 3
+hpd_lag: 3
 lag_window: 1
 train_end: "2023-12-31"
 val_end:   "2024-06-30"
@@ -23,7 +25,6 @@ feature_cols:
   - ft_mta_bus
   - ft_mta_lirr
   - ft_311_heat
-  - ft_311_flood
   - ft_311_snow
   - ft_crashes_total
   - ft_crashes_slippery
@@ -33,6 +34,13 @@ feature_cols:
   - ft_ped_pedestrian
   - ft_cz_total
   - ft_evictions
+  - ft_restaurant_inspections
+  - ft_restaurant_critical
+  - ft_hpd_class_a
+  - ft_hpd_class_b
+  - ft_hpd_class_c
+  - ft_mets_win_pct
+  - ft_yankees_win_pct
 confidence_thresholds:
   high:   0.7
   medium: 0.4

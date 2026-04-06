@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir
 # data/ and logs/ are NOT copied — they come from bind mounts at runtime
 COPY conf/ conf/
 COPY app/ app/
+COPY gifs/ gifs/
 COPY run_pipeline.sh run_inference_only.sh ./
 RUN chmod +x run_pipeline.sh run_inference_only.sh
 

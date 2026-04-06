@@ -23,6 +23,7 @@ logs/
 
 # Keys
 keys.md
+.env
 
 # Claude
 CLAUDE.md
