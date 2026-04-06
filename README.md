@@ -201,4 +201,9 @@ To run automatically, add to cron (`crontab -e`):
 # Rotate cron log weekly, keep 4 weeks
 0 0 * * 0 mv ~/code/project-weather-dumb/logs/cron.log ~/code/project-weather-dumb/logs/cron.log.$(date +\%Y\%W) &&>
 
+# Monitor: check predictions freshness + web container every 30 min
+*/30 * * * * cd /home/<user>/code/project-weather-dumb && python3 monitor.py check >> logs/monitor.log 2>&1
+
+# Monitor: startup email with ngrok URL (runs 30s after boot to let ngrok settle)
+@reboot sleep 30 && cd /home/<user>/code/project-weather-dumb && python3 monitor.py startup >> logs/monitor.log 2>&1
 ---

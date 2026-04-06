@@ -39,6 +39,16 @@ feature_cols:
   - ft_hpd_class_c
   - ft_mets_win_pct
   - ft_yankees_win_pct
+alert:
+  email_from:            "cosenzazachary@gmail.com"
+  email_to:              ["cosenzazachary@gmail.com"]
+  stale_threshold_hours: 3
+  web_container:         "weather-web"
+
+display:
+  temp_hot_f:  75
+  temp_cold_f: 50
+
 xgb:
   n_estimators: 300
   learning_rate: 0.05

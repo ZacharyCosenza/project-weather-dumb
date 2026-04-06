@@ -2,10 +2,17 @@ import base64
 import json
 from pathlib import Path
 
+import yaml
 import streamlit as st
 
-_PREDICTIONS_PATH = Path(__file__).parents[1] / "data/03_primary/predictions.json"
-_GIF_DIR          = Path(__file__).parents[1] / "gifs"
+_ROOT             = Path(__file__).parents[1]
+_PREDICTIONS_PATH = _ROOT / "data/03_primary/predictions.json"
+_GIF_DIR          = _ROOT / "gifs"
+
+_params  = yaml.safe_load((_ROOT / "conf/base/parameters.yml").read_text())
+_display = _params.get("display", {})
+_TEMP_HOT_F  = _display.get("temp_hot_f",  75)
+_TEMP_COLD_F = _display.get("temp_cold_f", 50)
 
 _NAVY, _ORANGE = "#1B3A6B", "#E87722"
 _GREY_DARK, _GREY_MID, _GREY_LIGHT = "#6B6B6B", "#9E9E9E", "#D4D4D4"
@@ -68,9 +75,9 @@ def _H(s: str) -> str:
 
 
 def _temp_bucket(temp_f: float) -> str:
-    if temp_f >= 75:
+    if temp_f >= _TEMP_HOT_F:
         return "hot"
-    if temp_f >= 50:
+    if temp_f >= _TEMP_COLD_F:
         return "moderate"
     return "cold"
 
