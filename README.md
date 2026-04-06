@@ -39,7 +39,7 @@ The key constraint is that no direct weather data is used as a model input. Inst
 <table>
 <tr>
 <td width="220" align="center">
-<video src="gifs/marv.mp4" width="200" autoplay loop muted></video>
+<img src="gifs/marv.gif" width="200" alt="NYISO grid load">
 </td>
 <td valign="top">
 
@@ -53,7 +53,7 @@ Real-time electricity consumption for the NYC grid zone, updated every ~12 minut
 </tr>
 <tr>
 <td width="220" align="center">
-<video src="gifs/I_like_trains.mp4" width="200" autoplay loop muted></video>
+<img src="gifs/I_like_trains.gif" width="200" alt="MTA subway ridership">
 </td>
 <td valign="top">
 
@@ -67,7 +67,7 @@ Daily subway entries across the entire NYC system. Rain suppresses ridership; ex
 </tr>
 <tr>
 <td width="220" align="center">
-<video src="gifs/c4mkd087lwlg1.mp4" width="200" autoplay loop muted></video>
+<img src="gifs/c4mkd087lwlg1.gif" width="200" alt="MTA bus ridership">
 </td>
 <td valign="top">
 
@@ -81,7 +81,7 @@ Daily bus boardings citywide. Bus ridership is more weather-sensitive than subwa
 </tr>
 <tr>
 <td width="220" align="center">
-<video src="gifs/Amtrak_Snow_mo_Collision.mp4" width="200" autoplay loop muted></video>
+<img src="gifs/Amtrak_Snow_mo_Collision.gif" width="200" alt="LIRR ridership">
 </td>
 <td valign="top">
 
