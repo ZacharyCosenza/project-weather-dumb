@@ -2,28 +2,22 @@
 
 Why do we need historical temperature and pressure trends or complex physical models to predict the weather when we have access to the goings-on of the great people of New York City? That is what I am trying to answer with this repo. In this repo, correlation is causation. 
 
-## Targets
+## Target
 
-Labels are derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row is assigned a precipitation class and a temperature class. Class imbalance (snowy is ~7% of hours) is handled via class-proportionality sample weighting at training time.
+The label is derived from the Open-Meteo ERA5 archive — free, no API key, hourly resolution back to 1940. Each hourly row's ground-truth temperature is the raw `temperature_2m` field in Celsius, stored as `tgt_temp_c` and converted to °F at display time.
 
 | Target | Derivation |
 |---|---|
-| `snowy` | snowfall > 0 cm |
-| `rainy` | precipitation ≥ 1 mm (and no snow) |
-| `cloudy` | cloud cover ≥ 60% (and no precip) |
-| `clear` | otherwise |
-| `cold` | mean temp < 4.44°C (40°F) |
-| `hot` | mean temp > 26.67°C (80°F) |
-| `temperate` | otherwise |
+| `tgt_temp_c` | `temperature_2m` from ERA5 (°C float) |
 
 ![Target class balance](data/03_primary/plot_targets.png)
 
 ### Data
 
 ```
-Open-Meteo ERA5      →  ground truth labels (precip class, temp class)
+Open-Meteo ERA5      →  ground truth temperature (°C float)
 NYISO grid load     ─┐
-MTA ridership        ├─ lag-shifted features → XGBoost → prediction + confidence
+MTA ridership        ├─ lag-shifted features → XGBoost regressor → temperature (°F)
 NYC 311 complaints   │
 Motor vehicle crashes┘
 ```
@@ -127,15 +121,13 @@ Daily sources are reindexed to hourly by holding each day's value constant acros
 
 ## Results
 
-Models are evaluated against two holdout sets: a temporal test set (Jul 2024–present, production-realistic) and a random 10% sample across all time (an upper bound). The temporal test is the honest number — it measures performance on future data the model has never seen.
+The model is evaluated against two holdout sets: a temporal test set (Jul 2024–present, production-realistic) and a random 10% sample across all time (an upper bound). The temporal test is the honest number — it measures performance on future data the model has never seen. Metrics are RMSE, MAE, and R².
 
-![Model evaluation — metrics and ROC curves](data/03_primary/plot_metrics.png)
+![Model evaluation — RMSE / MAE / R²](data/03_primary/plot_metrics.png)
 
-SHAP values explain which features drove each prediction, broken out per class. Each panel shows how features push the model toward that specific class — high NYISO load, for example, has a large positive effect on "hot" and a large negative effect on "cold", which would cancel out in a class-averaged view.
+SHAP values explain which features drove each prediction. The beeswarm plot shows how feature values (color) push the temperature prediction up or down — high NYISO load in summer, for example, correlates with high SHAP values for `ft_nyiso_load_mw`.
 
-![SHAP — precipitation model (per class)](data/03_primary/shap_precip.png)
-
-![SHAP — temperature model (per class)](data/03_primary/shap_temp.png)
+![SHAP — temperature model](data/03_primary/shap_temp.png)
 
 ## Quick Start
 
@@ -147,15 +139,15 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### 2. Train the models
+### 2. Train the model
 
-Fetches all data sources, merges them, and trains both classifiers. On first run it downloads ~4 years of hourly data — expect 3–5 minutes.
+Fetches all data sources, merges them, and trains the temperature regressor. On first run it downloads ~4 years of hourly data — expect 3–5 minutes.
 
 ```bash
 kedro run
 ```
 
-Outputs written to `data/03_primary/`: trained models, evaluation plots, SHAP plots.
+Outputs written to `data/03_primary/`: trained model, evaluation plots, SHAP plot.
 
 ### 3. Run inference
 
@@ -173,7 +165,7 @@ Output: `data/03_primary/predictions.json`
 streamlit run app/app.py
 ```
 
-Opens at `http://localhost:8501`. Shows the current precipitation and temperature prediction with confidence level and SHAP feature contributions.
+Opens at `http://localhost:8501`. Shows the current temperature prediction in °F with SHAP feature contributions.
 
 To run the site persistently in the background (survives closing the terminal):
 

@@ -64,10 +64,6 @@ hourly_features:
   filepath: data/02_intermediate/hourly_features.parquet
   save_args: {engine: pyarrow, index: true}
 
-model_precip:
-  type: pickle.PickleDataset
-  filepath: data/03_primary/model_precip.pkl
-
 model_temp:
   type: pickle.PickleDataset
   filepath: data/03_primary/model_temp.pkl
@@ -99,11 +95,6 @@ plot_targets:
 plot_features_time:
   type: matplotlib.MatplotlibWriter
   filepath: data/03_primary/plot_features_time.png
-  save_args: {format: png, dpi: 150, bbox_inches: tight}
-
-shap_precip:
-  type: matplotlib.MatplotlibWriter
-  filepath: data/03_primary/shap_precip.png
   save_args: {format: png, dpi: 150, bbox_inches: tight}
 
 shap_temp:

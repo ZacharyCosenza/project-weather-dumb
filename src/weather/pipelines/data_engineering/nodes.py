@@ -24,20 +24,7 @@ def _log_fetch(name: str, df: pd.DataFrame, elapsed: float) -> None:
         name, len(df), date_range, null_frac * 100, cols, elapsed,
     )
 
-_WMO = {
-    0: "clear",  1: "clear",  2: "cloudy", 3: "cloudy", 45: "cloudy", 48: "cloudy",
-    51: "rainy", 53: "rainy", 55: "rainy",  56: "rainy",  57: "rainy",
-    61: "rainy", 63: "rainy", 65: "rainy",  66: "rainy",  67: "rainy",
-    71: "snowy", 73: "snowy", 75: "snowy",  77: "snowy",
-    80: "rainy", 81: "rainy", 82: "rainy",
-    85: "snowy", 86: "snowy", 95: "rainy",  96: "rainy",  99: "rainy",
-}
-_PRECIP_ORDER = ["clear", "cloudy", "rainy", "snowy"]
-_TEMP_ORDER   = ["cold", "temperate", "hot"]
-
-
-def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
-                     cold_c: float, hot_c: float) -> pd.DataFrame:
+def _fetch_openmeteo(start: str, end: str, lat: float, lon: float) -> pd.DataFrame:
     session = retry(
         requests_cache.CachedSession("data/00_cache/openmeteo", expire_after=86400),
         retries=5, backoff_factor=0.3,
@@ -45,32 +32,14 @@ def _fetch_openmeteo(start: str, end: str, lat: float, lon: float,
     r = session.get("https://archive-api.open-meteo.com/v1/archive", params={
         "latitude": lat, "longitude": lon,
         "start_date": start, "end_date": end,
-        "hourly": ["temperature_2m", "precipitation", "snowfall", "weathercode"],
+        "hourly": ["temperature_2m"],
         "timezone": "America/New_York",
     }, timeout=60)
     r.raise_for_status()
     h = r.json()["hourly"]
 
-    temperature_c = pd.Series(h["temperature_2m"])
-    weathercode   = pd.Series(h["weathercode"])
-    index         = pd.to_datetime(h["time"])
-
-    tgt_precip = pd.Categorical(
-        weathercode.map(lambda c: _WMO.get(c, "cloudy")),
-        categories=_PRECIP_ORDER, ordered=True,
-    )
-    tgt_temp = pd.Categorical(
-        temperature_c.apply(
-            lambda t: "cold" if t < cold_c else "hot" if t > hot_c else "temperate"
-        ),
-        categories=_TEMP_ORDER, ordered=True,
-    )
-    df = pd.DataFrame({
-        "tgt_precip":     tgt_precip,
-        "tgt_temp":       tgt_temp,
-        "tgt_precip_int": tgt_precip.codes,
-        "tgt_temp_int":   tgt_temp.codes,
-    }, index=index)
+    index = pd.to_datetime(h["time"])
+    df = pd.DataFrame({"tgt_temp_c": h["temperature_2m"]}, index=index)
     df.index.name = "timestamp"
     return df
 
@@ -367,7 +336,6 @@ def _fetch_mlb(start: str, end: str) -> pd.DataFrame:
 def fetch_raw(
     start_date: str, end_date: str,
     nyc_lat: float, nyc_lon: float,
-    cold_c: float, hot_c: float,
 ) -> tuple:
     def _timed(name: str, fn, *args):
         log.info("fetch %-22s  starting...", name)
@@ -392,7 +360,7 @@ def fetch_raw(
         raw_nyiso.index.name = "timestamp"
 
     return (
-        _timed("openmeteo",       _fetch_openmeteo, start_date, end_date, nyc_lat, nyc_lon, cold_c, hot_c),
+        _timed("openmeteo",       _fetch_openmeteo, start_date, end_date, nyc_lat, nyc_lon),
         raw_nyiso,
         _timed("mta",             _fetch_mta,             start_date, end_date),
         _timed("311",             _fetch_311,             start_date, end_date),

@@ -1,7 +1,5 @@
 nyc_lat: 40.7128
 nyc_lon: -74.0060
-cold_c: 4.44
-hot_c: 26.67
 start_date: "2022-02-01"
 end_date:   "2026-04-03"
 mta_lag: 3
@@ -41,10 +39,6 @@ feature_cols:
   - ft_hpd_class_c
   - ft_mets_win_pct
   - ft_yankees_win_pct
-confidence_thresholds:
-  high:   0.7
-  medium: 0.4
-
 xgb:
   n_estimators: 300
   learning_rate: 0.05

@@ -12,8 +12,6 @@ def create_pipeline(**kwargs) -> Pipeline:
                 "end_date":   "params:end_date",
                 "nyc_lat":    "params:nyc_lat",
                 "nyc_lon":    "params:nyc_lon",
-                "cold_c":     "params:cold_c",
-                "hot_c":      "params:hot_c",
             },
             outputs=["raw_openmeteo", "raw_nyiso", "raw_mta", "raw_311", "raw_crashes",
                      "raw_floodnet", "raw_bike_ped", "raw_cz", "raw_evictions",

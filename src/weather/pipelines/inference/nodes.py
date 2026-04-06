@@ -1,65 +1,39 @@
 import logging
-import math
-from datetime import datetime, timezone
 
 import shap
 import pandas as pd
-from xgboost import XGBClassifier
+from xgboost import XGBRegressor
 
 log = logging.getLogger(__name__)
-
-_PRECIP_ORDER = ["clear", "cloudy", "rainy", "snowy"]
-_TEMP_ORDER   = ["cold", "temperate", "hot"]
-
-
-def _predict_target(
-    model: XGBClassifier,
-    X: pd.DataFrame,
-    class_order: list[str],
-    thresholds: dict,
-) -> dict:
-    probs    = model.predict_proba(X)[0]
-    pred_idx = int(probs.argmax())
-    prob     = float(probs[pred_idx])
-
-    confidence = (
-        "high"   if prob >= thresholds["high"]   else
-        "medium" if prob >= thresholds["medium"]  else
-        "low"
-    )
-
-    # SHAP for the predicted class only
-    exp        = shap.TreeExplainer(model)(X)
-    shap_vals  = {col: round(float(exp.values[0, i, pred_idx]), 4)
-                  for i, col in enumerate(X.columns)}
-
-    return {
-        "prediction":    class_order[pred_idx],
-        "confidence":    confidence,
-        "probability":   round(prob, 4),
-        "probabilities": {c: round(float(p), 4) for c, p in zip(class_order, probs)},
-        "shap":          shap_vals,
-    }
 
 
 def run_inference(
     hourly_features: pd.DataFrame,
-    model_precip: XGBClassifier,
-    model_temp: XGBClassifier,
+    model_temp: XGBRegressor,
     feature_cols: list[str],
-    confidence_thresholds: dict,
 ) -> dict:
-    feat    = feature_cols
-    latest  = hourly_features.reindex(columns=feat).iloc[[-1]]
-    ts      = str(latest.index[0])
+    feat   = feature_cols
+    latest = hourly_features.reindex(columns=feat).iloc[[-1]]
+    ts     = str(latest.index[0])
 
-    log.info(f"Model Inference Input: {latest.T}")
+    log.info("Model Inference Input:\n%s", latest.T)
     if latest.empty:
-        logging.warning("INFERENCE DATA EMPTY")
+        log.warning("INFERENCE DATA EMPTY")
+
+    pred_c = float(model_temp.predict(latest)[0])
+
+    # SHAP values shape: (n_samples, n_features) for regression
+    exp       = shap.TreeExplainer(model_temp)(latest)
+    shap_vals = {col: round(float(exp.values[0, i]), 4)
+                 for i, col in enumerate(latest.columns)}
 
     return {
-        "timestamp": ts,
-        "features":  {col: (None if pd.isna(v := latest[col].iloc[0]) else round(float(v), 2)) for col in feat},
-        "precip":    _predict_target(model_precip, latest, _PRECIP_ORDER, confidence_thresholds),
-        "temp":      _predict_target(model_temp,   latest, _TEMP_ORDER,   confidence_thresholds),
+        "timestamp":   ts,
+        "features":    {col: (None if pd.isna(v := latest[col].iloc[0]) else round(float(v), 2))
+                        for col in feat},
+        "temp": {
+            "prediction_c": round(pred_c, 2),
+            "prediction_f": round(pred_c * 9 / 5 + 32, 1),
+            "shap":         shap_vals,
+        },
     }
