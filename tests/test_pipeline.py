@@ -57,7 +57,8 @@ def hourly():
         *raws,
         mta_lag=3, lag_311=2, crashes_lag=5,
         floodnet_lag=2, bike_ped_lag=1, cz_lag=21,
-        evictions_lag=2, lag_window=1,
+        evictions_lag=2, restaurant_lag=3, hpd_lag=3,
+        lag_window=1,
     )
 
 
