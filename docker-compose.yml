@@ -31,9 +31,7 @@ services:
     image: ngrok/ngrok:latest
     container_name: weather-ngrok
     restart: unless-stopped
-    command: http web:8501 --log=/logs/ngrok.log
-    volumes:
-      - ./logs:/logs
+    command: http web:8501
     ports:
       - "4040:4040"
     depends_on:

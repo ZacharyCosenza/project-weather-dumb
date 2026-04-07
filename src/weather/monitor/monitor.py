@@ -27,7 +27,7 @@ from kedro.framework.project import settings
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-_ROOT = Path(__file__).parents[4]  # project root
+_ROOT = Path(__file__).parents[3]  # project root
 
 def _load_params() -> dict:
     conf_path = _ROOT / settings.CONF_SOURCE
@@ -67,8 +67,8 @@ def _send(subject: str, body: str, email_from: str, email_to: list[str], passwor
 
 # ── Checks ────────────────────────────────────────────────────────────────────
 
-def _ngrok_url() -> str:
-    for _ in range(15):
+def _ngrok_url(retries: int = 15, interval: float = 1.0) -> str:
+    for _ in range(retries):
         try:
             with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=2) as r:
                 data = json.load(r)
@@ -77,7 +77,7 @@ def _ngrok_url() -> str:
                 return tunnels[0]["public_url"]
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(interval)
     return ""
 
 
@@ -106,15 +106,18 @@ def startup() -> None:
     web_container = alert.get("web_container", "weather-web")
     send          = lambda s, b: _send(s, b, alert["email_from"], alert["email_to"], _smtp_password())
 
-    url      = _ngrok_url()
-    url_line = f"Public URL: {url}" if url else "Public URL: not yet available — check logs/ngrok.log"
+    url = _ngrok_url(retries=60, interval=3.0)  # poll up to 3 min for Docker/ngrok to settle
+    if not url:
+        print("[monitor] ngrok URL not available after polling — skipping startup email. Check logs/ngrok.log", file=sys.stderr)
+        return
+
     age      = _predictions_age_secs()
     age_line = f"Predictions last updated: {age:.0f}s ago" if age is not None else "Predictions file not yet written."
 
     send(
         "🌆 NYC Nowcast is live",
         f"The weather app started at {datetime.now().strftime('%Y-%m-%d %H:%M')}.\n\n"
-        f"{url_line}\n\n"
+        f"Public URL: {url}\n\n"
         f"Web container running: {_container_running(web_container)}\n"
         f"{age_line}",
     )

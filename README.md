@@ -206,33 +206,36 @@ To stop it:
 pkill -f "streamlit run"
 ```
 
-### 5. Schedule hourly refresh
+### 5. Schedule automatic refresh
 
-The shell script re-fetches today's data and runs inference:
-
-```bash
-bash run_inference_only.sh   # fast: data_engineering + inference only
-bash run_pipeline.sh         # full: data_engineering + retrain + inference
-```
-
-To run automatically, add to cron (`crontab -e`):
+Run via `crontab -e`. Use absolute paths throughout — cron runs without your shell environment.
 
 ```
-
 # Hourly: fast inference (at :05 past the hour — gives NYISO time to publish)
-*/30  * * * * docker exec weather-pipeline /app/run_inference_only.sh >> /home/zaccosenza/code/project-weather-dumb>
+5 * * * * docker exec weather-pipeline /app/run_inference_only.sh >> /home/cosenzac/code/project-weather-dumb/logs/cron.log 2>&1
 
 # Nightly: full retrain at 02:00
-0 2 * * * docker exec weather-pipeline /app/run_pipeline.sh >> /home/zaccosenza/code/project-weather-dumb/logs/cron>
+0 2 * * * docker exec weather-pipeline /app/run_pipeline.sh >> /home/cosenzac/code/project-weather-dumb/logs/cron.log 2>&1
 
 # Rotate cron log weekly, keep 4 weeks
-0 0 * * 0 mv ~/code/project-weather-dumb/logs/cron.log ~/code/project-weather-dumb/logs/cron.log.$(date +\%Y\%W) &&>
+0 0 * * 0 mv /home/cosenzac/code/project-weather-dumb/logs/cron.log /home/cosenzac/code/project-weather-dumb/logs/cron.log.$(date +\%Y\%W) && touch /home/cosenzac/code/project-weather-dumb/logs/cron.log
 
 # Monitor: check predictions freshness + web container every 30 min
-*/30 * * * * cd /home/<user>/code/project-weather-dumb && python3 monitor.py check >> logs/monitor.log 2>&1
+*/30 * * * * cd /home/cosenzac/code/project-weather-dumb && .venv/bin/python -m weather.monitor check >> /home/cosenzac/code/project-weather-dumb/logs/monitor.log 2>&1
 
-# Monitor: startup email with ngrok URL (runs 30s after boot to let ngrok settle)
-@reboot sleep 30 && cd /home/<user>/code/project-weather-dumb && python3 monitor.py startup >> logs/monitor.log 2>&1
+# Monitor: startup email with ngrok URL (60s delay lets Docker + ngrok settle after boot)
+@reboot sleep 60 && cd /home/cosenzac/code/project-weather-dumb && .venv/bin/python -m weather.monitor startup >> /home/cosenzac/code/project-weather-dumb/logs/monitor.log 2>&1
+```
+
+**Common gotchas:**
+- The `logs/` directory is created by Docker and will be owned by `root` — fix once with `sudo chown $USER logs/`
+- The user must be in the `docker` group (`sudo usermod -aG docker $USER`, then log out/in) — otherwise all `docker exec` cron entries fail silently
+- Use `.venv/bin/python` explicitly — cron has no knowledge of activated virtualenvs
+
+Watch the logs:
+```bash
+tail -f logs/cron.log      # pipeline runs
+tail -f logs/monitor.log   # health checks and startup emails
 ```
 
 ---
@@ -247,30 +250,38 @@ All secrets live in `.env` at the project root (do not commit). Docker Compose l
 | `ALERT_SMTP_PASSWORD` | `monitor.py` | Gmail [app password](https://myaccount.google.com/apppasswords) for alert emails |
 
 ```bash
-# .env (template)
+# .env (template — copy and fill in values, never commit this file)
 NGROK_AUTHTOKEN=your-ngrok-token
 ALERT_SMTP_PASSWORD=xxxx xxxx xxxx xxxx
 ```
 
-Alert email addresses (`email_from`, `email_to`) are set in `conf/base/parameters.yml`, not in `.env`, since they are not secrets.
+Alert email addresses (`email_from`, `email_to`) are set in `conf/base/parameters.yml` — not in `.env` since they are not secrets.
 
 ---
 
 ## Monitoring
 
-`src/weather/monitor/monitor.py` watches the running system and sends Gmail alerts. It is invoked by the two `@reboot` / `*/30` cron entries above.
+`src/weather/monitor/monitor.py` watches the running system and sends Gmail alerts. Invoked by cron; can also be run manually.
 
 ### Modes
 
-| Command | When | What it does |
+| Command | Triggered by | What it does |
 |---|---|---|
-| `python -m weather.monitor startup` | On boot (via `@reboot` cron, 30 s delay) | Queries the ngrok local API for the current public URL and emails it, along with predictions age and web container status |
-| `python -m weather.monitor check` | Every 30 min (via `*/30` cron) | Sends an alert email if `predictions.json` is older than `stale_threshold_hours` (default: 3 h) or if the `weather-web` container is not running |
-| `python -m weather.monitor test` | Manual | Sends a test email to verify SMTP is configured correctly |
+| `.venv/bin/python -m weather.monitor startup` | `@reboot` cron (60s delay) | Polls the ngrok local API until a public URL is confirmed (up to 3 min), then emails it with container status and predictions age. Skips the email entirely if ngrok never comes up — check `logs/ngrok.log` via `docker compose logs ngrok`. |
+| `.venv/bin/python -m weather.monitor check` | `*/30` cron | Emails an alert if `predictions.json` is older than `stale_threshold_hours` (default: 3h) or if the `weather-web` container is not running. Prints to stdout if all is well. |
+| `.venv/bin/python -m weather.monitor test` | Manual | Sends a test email to verify SMTP is working. |
+
+Run any mode manually from the project root:
+```bash
+cd /home/cosenzac/code/project-weather-dumb
+.venv/bin/python -m weather.monitor startup   # get the ngrok URL emailed now
+.venv/bin/python -m weather.monitor check     # run a health check now
+.venv/bin/python -m weather.monitor test      # verify SMTP config
+```
 
 ### Configuration
 
-Email addresses are in `conf/base/parameters.yml` under `alert:`:
+Email addresses live in `conf/base/parameters.yml` under `alert:`:
 
 ```yaml
 alert:
@@ -280,6 +291,42 @@ alert:
   web_container: weather-web
 ```
 
-The SMTP password is read from `.env` first, then falls back to the `ALERT_SMTP_PASSWORD` environment variable.
+The SMTP password is read from `.env` first, falling back to the `ALERT_SMTP_PASSWORD` environment variable.
+
+### Why startup email requires a reboot
+
+The `@reboot` cron only fires on system boot. Docker containers restart automatically (`restart: unless-stopped`), so on reboot the sequence is:
+
+1. Docker daemon starts → containers come back up
+2. 60s sleep → monitor starts
+3. Monitor polls `localhost:4040/api/tunnels` every 3s for up to 3 min until ngrok reports a URL
+4. Email sent with confirmed public URL
+
+If you restart Docker manually (e.g. after pulling changes), trigger the startup email yourself:
+```bash
+.venv/bin/python -m weather.monitor startup
+```
+
+---
+
+## Updating After a Code Change
+
+```bash
+git pull
+
+# Rebuild the image (required whenever src/, conf/, or requirements.txt change)
+docker compose build
+
+# Restart containers with the new image
+docker compose up -d
+
+# Run the full pipeline immediately rather than waiting for the 2am cron
+docker exec weather-pipeline /app/run_pipeline.sh
+
+# Email yourself the (unchanged) ngrok URL to confirm everything is back up
+.venv/bin/python -m weather.monitor startup
+```
+
+`data/` and `logs/` are bind-mounted and survive rebuilds — trained models and historical data are not lost.
 
 ---
