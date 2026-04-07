@@ -7,6 +7,7 @@ import pandas as pd
 import shap
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from sklearn.inspection import partial_dependence
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
@@ -62,6 +63,35 @@ def _metrics_figure(model_temp, splits, feat, eval_results) -> Figure:
     ax.legend(fontsize=9)
     ax.grid(axis="y", alpha=0.3)
 
+    fig.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def _pdp_figure(model: XGBRegressor, X: pd.DataFrame, max_samples: int = 2000) -> Figure:
+    """1-D partial dependence plot for every feature."""
+    features = list(X.columns)
+    X_clean = X.dropna()
+    if len(X_clean) > max_samples:
+        X_clean = X_clean.sample(max_samples, random_state=42)
+
+    n_cols = 3
+    n_rows = (len(features) + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 3 * n_rows))
+    axes_flat = np.array(axes).flatten()
+
+    for ax, feat in zip(axes_flat, features):
+        result = partial_dependence(model, X_clean, [feat], grid_resolution=50, kind="average")
+        ax.plot(result.grid_values[0], result.average[0], color=_NAVY, linewidth=2)
+        ax.set_title(feat.replace("_", " "), fontsize=9)
+        ax.set_ylabel("Temp (°C)", fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(alpha=0.2)
+
+    for ax in axes_flat[len(features):]:
+        ax.set_visible(False)
+
+    fig.suptitle("Partial Dependence — Temperature (°C)", fontsize=13, fontweight="bold")
     fig.tight_layout()
     plt.close(fig)
     return fig
@@ -195,4 +225,5 @@ def train_and_evaluate(
         model_temp,
         _metrics_figure(model_temp, splits, feat, results),
         _shap_beeswarm(model_temp, t_te[feat]),
+        _pdp_figure(model_temp, t_te[feat]),
     )

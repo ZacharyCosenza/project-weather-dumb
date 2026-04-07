@@ -129,6 +129,33 @@ SHAP values explain which features drove each prediction. The beeswarm plot show
 
 ![SHAP — temperature model](data/03_primary/shap_temp.png)
 
+## Docker Setup
+
+Install Docker Engine and the Compose plugin from Docker's official apt repo:
+
+```bash
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+Add your user to the `docker` group so you can run Docker without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker   # applies to the current shell; log out/in to make it permanent
+```
+
+Verify:
+
+```bash
+docker compose version
+```
+
+---
+
 ## Quick Start
 
 ### 1. Install dependencies
@@ -206,4 +233,53 @@ To run automatically, add to cron (`crontab -e`):
 
 # Monitor: startup email with ngrok URL (runs 30s after boot to let ngrok settle)
 @reboot sleep 30 && cd /home/<user>/code/project-weather-dumb && python3 monitor.py startup >> logs/monitor.log 2>&1
+```
+
+---
+
+## Secrets & Environment
+
+All secrets live in `.env` at the project root (do not commit). Docker Compose loads it automatically; `monitor.py` reads it directly.
+
+| Variable | Used by | Description |
+|---|---|---|
+| `NGROK_AUTHTOKEN` | `docker-compose.yml` → `ngrok` service | ngrok account token for the public tunnel |
+| `ALERT_SMTP_PASSWORD` | `monitor.py` | Gmail [app password](https://myaccount.google.com/apppasswords) for alert emails |
+
+```bash
+# .env (template)
+NGROK_AUTHTOKEN=your-ngrok-token
+ALERT_SMTP_PASSWORD=xxxx xxxx xxxx xxxx
+```
+
+Alert email addresses (`email_from`, `email_to`) are set in `conf/base/parameters.yml`, not in `.env`, since they are not secrets.
+
+---
+
+## Monitoring
+
+`src/weather/monitor/monitor.py` watches the running system and sends Gmail alerts. It is invoked by the two `@reboot` / `*/30` cron entries above.
+
+### Modes
+
+| Command | When | What it does |
+|---|---|---|
+| `python -m weather.monitor startup` | On boot (via `@reboot` cron, 30 s delay) | Queries the ngrok local API for the current public URL and emails it, along with predictions age and web container status |
+| `python -m weather.monitor check` | Every 30 min (via `*/30` cron) | Sends an alert email if `predictions.json` is older than `stale_threshold_hours` (default: 3 h) or if the `weather-web` container is not running |
+| `python -m weather.monitor test` | Manual | Sends a test email to verify SMTP is configured correctly |
+
+### Configuration
+
+Email addresses are in `conf/base/parameters.yml` under `alert:`:
+
+```yaml
+alert:
+  email_from: you@gmail.com
+  email_to:   [you@gmail.com]
+  stale_threshold_hours: 3
+  web_container: weather-web
+```
+
+The SMTP password is read from `.env` first, then falls back to the `ALERT_SMTP_PASSWORD` environment variable.
+
 ---

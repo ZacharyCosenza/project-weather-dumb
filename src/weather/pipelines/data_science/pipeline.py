@@ -25,7 +25,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 "random_test_frac":        "params:random_test_frac",
                 "train_subsample_frac":    "params:train_subsample_frac",
             },
-            outputs=["model_temp", "plot_metrics", "shap_temp"],
+            outputs=["model_temp", "plot_metrics", "shap_temp", "plot_pdp"],
             name="train_and_evaluate",
         ),
     ])

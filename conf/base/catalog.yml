@@ -101,3 +101,8 @@ shap_temp:
   type: matplotlib.MatplotlibWriter
   filepath: data/03_primary/shap_temp.png
   save_args: {format: png, dpi: 150, bbox_inches: tight}
+
+plot_pdp:
+  type: matplotlib.MatplotlibWriter
+  filepath: data/03_primary/plot_pdp.png
+  save_args: {format: png, dpi: 150, bbox_inches: tight}
